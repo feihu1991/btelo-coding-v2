@@ -21,13 +21,13 @@ class CryptoManagerTest {
     }
 
     @Test
-    fun `createAeadFromSharedSecret should create working AEAD`() {
+    fun `createCipherFromSharedSecret should create working cipher`() {
         val sharedSecret = ByteArray(32) { it.toByte() }
-        val aead = cryptoManager.createAeadFromSharedSecret(sharedSecret)
+        val cipher = cryptoManager.createCipherFromSharedSecret(sharedSecret)
 
-        val plaintext = "Hello, BTELO Coding!"
-        val encrypted = cryptoManager.encrypt(plaintext.toByteArray(), aead)
-        val decrypted = cryptoManager.decrypt(encrypted, aead)
+        val plaintext = "Hello, Yami Coding!"
+        val encrypted = cryptoManager.encrypt(plaintext.toByteArray(), cipher)
+        val decrypted = cryptoManager.decrypt(encrypted, cipher)
 
         assertEquals(plaintext, String(decrypted))
     }
@@ -46,17 +46,17 @@ class CryptoManagerTest {
 
         assertArrayEquals(aliceSharedSecret, bobSharedSecret)
 
-        val aliceAead = cryptoManager.createAeadFromSharedSecret(aliceSharedSecret)
-        val bobAead = cryptoManager.createAeadFromSharedSecret(bobSharedSecret)
+        val aliceCipher = cryptoManager.createCipherFromSharedSecret(aliceSharedSecret)
+        val bobCipher = cryptoManager.createCipherFromSharedSecret(bobSharedSecret)
 
-        val plaintext = "Hello, BTELO Coding!"
+        val plaintext = "Hello, Yami Coding!"
 
-        val encrypted = cryptoManager.encrypt(plaintext.toByteArray(), aliceAead)
-        val decrypted = cryptoManager.decrypt(encrypted, bobAead)
+        val encrypted = cryptoManager.encrypt(plaintext.toByteArray(), aliceCipher)
+        val decrypted = cryptoManager.decrypt(encrypted, bobCipher)
         assertEquals(plaintext, String(decrypted))
 
-        val encryptedByBob = cryptoManager.encrypt(plaintext.toByteArray(), bobAead)
-        val decryptedByAlice = cryptoManager.decrypt(encryptedByBob, aliceAead)
+        val encryptedByBob = cryptoManager.encrypt(plaintext.toByteArray(), bobCipher)
+        val decryptedByAlice = cryptoManager.decrypt(encryptedByBob, aliceCipher)
         assertEquals(plaintext, String(decryptedByAlice))
     }
 }

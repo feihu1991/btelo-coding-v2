@@ -1,6 +1,7 @@
 package com.btelo.coding.data.remote.websocket
 
 import com.btelo.coding.data.remote.encryption.CryptoManager
+import com.google.crypto.tink.subtle.ChaCha20Poly1305
 import com.google.gson.Gson
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -23,7 +24,7 @@ class BteloWebSocketClient(
     val messages: Flow<BteloMessage> = _messages.receiveAsFlow()
 
     private var keyPair = cryptoManager.generateKeyPair()
-    private var aead: com.google.crypto.tink.Aead? = null
+    private var cipher: ChaCha20Poly1305? = null
     private var isEncrypted = false
 
     fun connect(url: String, token: String) {
@@ -50,17 +51,17 @@ class BteloWebSocketClient(
                         val sharedSecret = cryptoManager.deriveSharedSecret(
                             keyPair.privateKey, remotePublicKey
                         )
-                        aead = cryptoManager.createAeadFromSharedSecret(sharedSecret)
+                        cipher = cryptoManager.createCipherFromSharedSecret(sharedSecret)
                         isEncrypted = true
                         _messages.trySend(BteloMessage.Status(connected = true))
                     }
                     is BteloMessage.Output -> {
-                        if (isEncrypted && aead != null) {
+                        if (isEncrypted && cipher != null) {
                             try {
                                 val encryptedData = android.util.Base64.decode(
                                     message.data, android.util.Base64.NO_WRAP
                                 )
-                                val decryptedData = cryptoManager.decrypt(encryptedData, aead!!)
+                                val decryptedData = cryptoManager.decrypt(encryptedData, cipher!!)
                                 val decryptedMessage = message.copy(
                                     data = String(decryptedData)
                                 )
@@ -91,9 +92,9 @@ class BteloWebSocketClient(
     }
 
     fun send(message: BteloMessage) {
-        val messageToSend = if (isEncrypted && aead != null && message is BteloMessage.Command) {
+        val messageToSend = if (isEncrypted && cipher != null && message is BteloMessage.Command) {
             val encryptedData = cryptoManager.encrypt(
-                message.content.toByteArray(), aead!!
+                message.content.toByteArray(), cipher!!
             )
             val encryptedBase64 = android.util.Base64.encodeToString(
                 encryptedData, android.util.Base64.NO_WRAP
@@ -110,6 +111,6 @@ class BteloWebSocketClient(
         webSocket?.close(1000, "User disconnected")
         webSocket = null
         isEncrypted = false
-        aead = null
+        cipher = null
     }
 }

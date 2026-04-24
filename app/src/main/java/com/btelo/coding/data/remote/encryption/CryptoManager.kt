@@ -1,18 +1,9 @@
 package com.btelo.coding.data.remote.encryption
 
-import com.google.crypto.tink.Aead
-import com.google.crypto.tink.InsecureSecretKeyAccess
-import com.google.crypto.tink.KeysetHandle
-import com.google.crypto.tink.SecretBytes
-import com.google.crypto.tink.aead.AeadConfig
-import com.google.crypto.tink.aead.ChaCha20Poly1305Key
+import com.google.crypto.tink.subtle.ChaCha20Poly1305
 import com.google.crypto.tink.subtle.X25519
 
 class CryptoManager {
-
-    init {
-        AeadConfig.register()
-    }
 
     fun generateKeyPair(): KeyPair {
         val privateKeyBytes = X25519.generatePrivateKey()
@@ -24,19 +15,16 @@ class CryptoManager {
         return X25519.computeSharedSecret(privateKey, publicKey)
     }
 
-    fun createAeadFromSharedSecret(sharedSecret: ByteArray): Aead {
+    fun createCipherFromSharedSecret(sharedSecret: ByteArray): ChaCha20Poly1305 {
         val keyBytes = sharedSecret.take(32).toByteArray()
-        val secretBytes = SecretBytes.copyFrom(keyBytes, InsecureSecretKeyAccess.get())
-        val key = ChaCha20Poly1305Key.create(secretBytes)
-        val keysetHandle = KeysetHandle.importKey(key).build()
-        return keysetHandle.getPrimitive(Aead::class.java)
+        return ChaCha20Poly1305(keyBytes)
     }
 
-    fun encrypt(plaintext: ByteArray, aead: Aead, associatedData: ByteArray = ByteArray(0)): ByteArray {
-        return aead.encrypt(plaintext, associatedData)
+    fun encrypt(plaintext: ByteArray, cipher: ChaCha20Poly1305, associatedData: ByteArray = ByteArray(0)): ByteArray {
+        return cipher.encrypt(plaintext, associatedData)
     }
 
-    fun decrypt(ciphertext: ByteArray, aead: Aead, associatedData: ByteArray = ByteArray(0)): ByteArray {
-        return aead.decrypt(ciphertext, associatedData)
+    fun decrypt(ciphertext: ByteArray, cipher: ChaCha20Poly1305, associatedData: ByteArray = ByteArray(0)): ByteArray {
+        return cipher.decrypt(ciphertext, associatedData)
     }
 }
