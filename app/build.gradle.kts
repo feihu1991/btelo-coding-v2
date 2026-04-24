@@ -111,6 +111,7 @@ dependencies {
     // Firebase Cloud Messaging
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
+    implementation("com.google.android.gms:play-services-base:18.3.0")
 
     // WorkManager for background tasks
     implementation("androidx.work:work-runtime-ktx:2.9.0")
