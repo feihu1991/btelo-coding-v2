@@ -37,12 +37,11 @@ class FcmTokenManager @Inject constructor(
     /**
      * Get token synchronously (blocking call, avoid on main thread)
      */
-    @Suppress("DEPRECATION")
     fun getTokenSync(): String? {
         return try {
-            // Use deprecated method for synchronous access
-            // This is acceptable for startup scenarios
-            FirebaseMessaging.getInstance().token
+            // Use Tasks.await for synchronous access
+            // This is acceptable for startup scenarios but avoid on main thread
+            com.google.android.gms.tasks.Tasks.await(FirebaseMessaging.getInstance().token)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get FCM token synchronously", e)
             null

@@ -125,7 +125,7 @@ fun NotificationSettingsScreen(
                 }
             )
             
-            HorizontalDivider()
+            Divider()
             
             // Sound setting
             SettingsSwitchItem(
@@ -154,7 +154,7 @@ fun NotificationSettingsScreen(
                 enabled = state.notificationEnabled
             )
             
-            HorizontalDivider()
+            Divider()
             
             // Do Not Disturb section
             SettingsSwitchItem(
