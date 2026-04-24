@@ -8,6 +8,7 @@ import com.btelo.coding.data.local.dao.DeviceDao
 import com.btelo.coding.data.local.dao.MessageDao
 import com.btelo.coding.data.local.dao.SessionDao
 import com.btelo.coding.data.remote.api.AuthApi
+import com.btelo.coding.data.remote.api.SyncApi
 import com.btelo.coding.data.remote.encryption.CryptoManager
 import com.btelo.coding.data.remote.encryption.SecureKeyStore
 import com.btelo.coding.data.remote.network.NetworkMonitor
@@ -29,6 +30,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -63,6 +66,22 @@ object AppModule {
     @Singleton
     fun provideAuthApi(okHttpClient: OkHttpClient, gson: Gson): AuthApi {
         return AuthApi(okHttpClient, gson)
+    }
+
+    @Provides
+    @Singleton
+    fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl("http://localhost:8080/") // Base URL placeholder
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create(gson))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideSyncApi(retrofit: Retrofit): SyncApi {
+        return retrofit.create(SyncApi::class.java)
     }
 
     @Provides
