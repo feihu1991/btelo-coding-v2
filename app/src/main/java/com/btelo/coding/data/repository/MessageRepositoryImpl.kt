@@ -44,8 +44,6 @@ class MessageRepositoryImpl @Inject constructor(
     
     // 连接状态
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
-
     override fun connect(serverAddress: String, token: String, sessionId: String) {
         _currentSessionId.value = sessionId
         
