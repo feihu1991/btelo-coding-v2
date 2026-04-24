@@ -209,4 +209,103 @@ class DataStoreManager @Inject constructor(
     fun setAutoSyncEnabled(enabled: Boolean) {
         regularPrefs.edit().putBoolean(KEY_AUTO_SYNC_ENABLED, enabled).apply()
     }
+    
+    // ========== Notification Settings ==========
+    
+    private val KEY_NOTIFICATION_ENABLED = "notification_enabled"
+    private val KEY_NOTIFICATION_SOUND = "notification_sound"
+    private val KEY_NOTIFICATION_VIBRATION = "notification_vibration"
+    private val KEY_NOTIFICATION_LED = "notification_led"
+    private val KEY_DND_ENABLED = "dnd_enabled"
+    private val KEY_DND_START_HOUR = "dnd_start_hour"
+    private val KEY_DND_START_MINUTE = "dnd_start_minute"
+    private val KEY_DND_END_HOUR = "dnd_end_hour"
+    private val KEY_DND_END_MINUTE = "dnd_end_minute"
+    private val KEY_FCM_TOKEN = "fcm_token"
+    
+    // Notification enabled
+    fun isNotificationEnabled(): Boolean {
+        return regularPrefs.getBoolean(KEY_NOTIFICATION_ENABLED, true)
+    }
+    
+    fun setNotificationEnabled(enabled: Boolean) {
+        regularPrefs.edit().putBoolean(KEY_NOTIFICATION_ENABLED, enabled).apply()
+    }
+    
+    // Notification sound
+    fun isNotificationSoundEnabled(): Boolean {
+        return regularPrefs.getBoolean(KEY_NOTIFICATION_SOUND, true)
+    }
+    
+    fun setNotificationSoundEnabled(enabled: Boolean) {
+        regularPrefs.edit().putBoolean(KEY_NOTIFICATION_SOUND, enabled).apply()
+    }
+    
+    // Notification vibration
+    fun isNotificationVibrationEnabled(): Boolean {
+        return regularPrefs.getBoolean(KEY_NOTIFICATION_VIBRATION, true)
+    }
+    
+    fun setNotificationVibrationEnabled(enabled: Boolean) {
+        regularPrefs.edit().putBoolean(KEY_NOTIFICATION_VIBRATION, enabled).apply()
+    }
+    
+    // Notification LED
+    fun isNotificationLedEnabled(): Boolean {
+        return regularPrefs.getBoolean(KEY_NOTIFICATION_LED, true)
+    }
+    
+    fun setNotificationLedEnabled(enabled: Boolean) {
+        regularPrefs.edit().putBoolean(KEY_NOTIFICATION_LED, enabled).apply()
+    }
+    
+    // DND enabled
+    fun isDndEnabled(): Boolean {
+        return regularPrefs.getBoolean(KEY_DND_ENABLED, false)
+    }
+    
+    fun setDndEnabled(enabled: Boolean) {
+        regularPrefs.edit().putBoolean(KEY_DND_ENABLED, enabled).apply()
+    }
+    
+    // DND start time
+    fun getDndStartHour(): Int {
+        return regularPrefs.getInt(KEY_DND_START_HOUR, 22) // Default: 22:00
+    }
+    
+    fun getDndStartMinute(): Int {
+        return regularPrefs.getInt(KEY_DND_START_MINUTE, 0)
+    }
+    
+    fun setDndStartTime(hour: Int, minute: Int) {
+        regularPrefs.edit()
+            .putInt(KEY_DND_START_HOUR, hour)
+            .putInt(KEY_DND_START_MINUTE, minute)
+            .apply()
+    }
+    
+    // DND end time
+    fun getDndEndHour(): Int {
+        return regularPrefs.getInt(KEY_DND_END_HOUR, 7) // Default: 07:00
+    }
+    
+    fun getDndEndMinute(): Int {
+        return regularPrefs.getInt(KEY_DND_END_MINUTE, 0)
+    }
+    
+    fun setDndEndTime(hour: Int, minute: Int) {
+        regularPrefs.edit()
+            .putInt(KEY_DND_END_HOUR, hour)
+            .putInt(KEY_DND_END_MINUTE, minute)
+            .apply()
+    }
+    
+    // FCM Token
+    suspend fun saveFcmToken(token: String) {
+        regularPrefs.edit().putString(KEY_FCM_TOKEN, token).apply()
+    }
+    
+    fun getFcmToken(): String? {
+        return regularPrefs.getString(KEY_FCM_TOKEN, null)
+    }
 }

@@ -21,6 +21,9 @@ import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.DeviceRepository
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.domain.repository.SessionRepository
+import com.btelo.coding.notification.NotificationChannelManager
+import com.btelo.coding.notification.NotificationHelper
+import com.btelo.coding.push.FcmTokenManager
 import com.btelo.coding.util.Logger
 import com.google.gson.Gson
 import dagger.Module
@@ -183,5 +186,26 @@ object AppModule {
         webSocketFactory: WebSocketClientFactory
     ): MessageRepository {
         return MessageRepositoryImpl(messageDao, webSocketFactory)
+    }
+
+    @Provides
+    @Singleton
+    fun provideNotificationChannelManager(@ApplicationContext context: Context): NotificationChannelManager {
+        return NotificationChannelManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideNotificationHelper(
+        @ApplicationContext context: Context,
+        dataStoreManager: DataStoreManager
+    ): NotificationHelper {
+        return NotificationHelper(context, dataStoreManager)
+    }
+
+    @Provides
+    @Singleton
+    fun provideFcmTokenManager(@ApplicationContext context: Context): FcmTokenManager {
+        return FcmTokenManager(context)
     }
 }

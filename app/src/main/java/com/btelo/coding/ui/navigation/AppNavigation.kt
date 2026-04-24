@@ -9,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.btelo.coding.ui.chat.ChatScreen
 import com.btelo.coding.ui.login.LoginScreen
+import com.btelo.coding.ui.notification.NotificationSettingsScreen
 import com.btelo.coding.ui.session.SessionListScreen
 
 sealed class Screen(val route: String) {
@@ -17,6 +18,7 @@ sealed class Screen(val route: String) {
     object Chat : Screen("chat/{sessionId}") {
         fun createRoute(sessionId: String) = "chat/$sessionId"
     }
+    object NotificationSettings : Screen("notification_settings")
 }
 
 @Composable
@@ -46,6 +48,9 @@ fun AppNavigation(
                     navController.navigate(Screen.Login.route) {
                         popUpTo(Screen.SessionList.route) { inclusive = true }
                     }
+                },
+                onNotificationSettings = {
+                    navController.navigate(Screen.NotificationSettings.route)
                 }
             )
         }
@@ -59,6 +64,12 @@ fun AppNavigation(
             val sessionId = backStackEntry.arguments?.getString("sessionId") ?: ""
             ChatScreen(
                 sessionId = sessionId,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.NotificationSettings.route) {
+            NotificationSettingsScreen(
                 onBack = { navController.popBackStack() }
             )
         }

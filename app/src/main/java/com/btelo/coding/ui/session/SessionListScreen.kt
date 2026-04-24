@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -37,6 +38,7 @@ import com.btelo.coding.domain.model.Session
 fun SessionListScreen(
     onSessionClick: (String) -> Unit,
     onLogout: () -> Unit,
+    onNotificationSettings: () -> Unit = {},
     viewModel: SessionListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -46,6 +48,9 @@ fun SessionListScreen(
             TopAppBar(
                 title = { Text("会话列表") },
                 actions = {
+                    IconButton(onClick = onNotificationSettings) {
+                        Icon(Icons.Default.Notifications, contentDescription = "通知设置")
+                    }
                     IconButton(onClick = {
                         viewModel.logout()
                         onLogout()
