@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">BTELO Coding</string>
+    <string name="login_title">登录</string>
+    <string name="login_server_address">服务器地址</string>
+    <string name="login_username">用户名</string>
+    <string name="login_password">密码</string>
+    <string name="login_button">登录</string>
+    <string name="login_error">登录失败，请检查凭据</string>
+    <string name="session_list_title">会话列表</string>
+    <string name="session_new">新建会话</string>
+    <string name="chat_title">AI 对话</string>
+    <string name="chat_input_hint">输入命令...</string>
+    <string name="chat_send">发送</string>
+    <string name="chat_voice">语音输入</string>
+    <string name="chat_attach">附件</string>
+    <string name="connecting">连接中...</string>
+    <string name="connection_error">连接失败</string>
+    <string name="retry">重试</string>
+</resources>
