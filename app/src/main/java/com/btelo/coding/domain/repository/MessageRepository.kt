@@ -11,6 +11,6 @@ interface MessageRepository {
     suspend fun sendMessage(sessionId: String, content: String): Result<Unit>
     fun observeOutput(sessionId: String): Flow<Message>
     fun disconnect(sessionId: String)
-    fun getConnectionState(): StateFlow<ConnectionState>
+    val connectionState: StateFlow<ConnectionState>
     suspend fun cleanOldMessages(sessionId: String, keepDays: Int = 30)
 }
