@@ -53,7 +53,6 @@ class EnhancedWebSocketClient(
     private var keyPair: KeyPair? = null
     private var cipher: com.google.crypto.tink.subtle.ChaCha20Poly1305? = null
     private var isEncrypted = false
-        return true
     
     private val protocol = MessageProtocol(gson)
     
