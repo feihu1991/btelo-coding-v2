@@ -22,11 +22,6 @@ android {
         }
     }
 
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
-    }
     buildTypes {
         release {
             isMinifyEnabled = true
