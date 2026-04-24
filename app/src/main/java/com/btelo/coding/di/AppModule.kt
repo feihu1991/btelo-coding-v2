@@ -2,6 +2,8 @@ package com.btelo.coding.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.btelo.coding.data.local.AppDatabase
 import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.data.local.dao.DeviceDao
@@ -123,6 +125,19 @@ object AppModule {
         return WebSocketClientFactory(okHttpClient, gson, cryptoManager, networkMonitor, secureKeyStore)
     }
     
+    // 数据库迁移策略：从 v1 升级到 v2
+    private val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // 为 sessions 表添加密钥版本相关字段
+            database.execSQL("ALTER TABLE sessions ADD COLUMN currentKeyVersion INTEGER NOT NULL DEFAULT 1")
+            database.execSQL("ALTER TABLE sessions ADD COLUMN lastKeyRotation INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE sessions ADD COLUMN rotationIntervalDays INTEGER NOT NULL DEFAULT 7")
+            
+            // 为 messages 表添加密钥版本字段
+            database.execSQL("ALTER TABLE messages ADD COLUMN keyVersion INTEGER NOT NULL DEFAULT 1")
+        }
+    }
+    
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -131,6 +146,7 @@ object AppModule {
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
+            .addMigrations(MIGRATION_1_2)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -207,5 +223,18 @@ object AppModule {
     @Singleton
     fun provideFcmTokenManager(@ApplicationContext context: Context): FcmTokenManager {
         return FcmTokenManager(context)
+    }
+    
+    @Provides
+    @Singleton
+    fun provideKeyRotationManager(
+        @ApplicationContext context: Context,
+        secureKeyStore: SecureKeyStore,
+        cryptoManager: CryptoManager,
+        gson: Gson
+    ): com.btelo.coding.data.remote.encryption.KeyRotationManager {
+        return com.btelo.coding.data.remote.encryption.KeyRotationManager(
+            context, secureKeyStore, cryptoManager, gson
+        )
     }
 }

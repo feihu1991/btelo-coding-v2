@@ -11,6 +11,19 @@ sealed class BteloMessage {
     data class Output(val data: String, val stream: StreamType) : BteloMessage()
     data class Status(val connected: Boolean) : BteloMessage()
     data class PublicKey(val key: String) : BteloMessage()
+    // 密钥轮换消息
+    data class KeyRotation(
+        val action: String,        // "initiate" | "accept" | "complete"
+        val newPublicKey: String,  // Base64编码的新公钥
+        val keyVersion: Int,       // 密钥版本号
+        val timestamp: Long
+    ) : BteloMessage()
+    // 带密钥版本的数据消息
+    data class EncryptedData(
+        val data: String,
+        val stream: StreamType,
+        val keyVersion: Int  // 用于标识使用哪个密钥版本解密
+    ) : BteloMessage()
 }
 
 enum class InputType {
@@ -44,6 +57,19 @@ class MessageProtocol(private val gson: Gson) {
             is BteloMessage.PublicKey -> {
                 json.addProperty("type", "publicKey")
                 json.addProperty("key", message.key)
+            }
+            is BteloMessage.KeyRotation -> {
+                json.addProperty("type", "keyRotation")
+                json.addProperty("action", message.action)
+                json.addProperty("newPublicKey", message.newPublicKey)
+                json.addProperty("keyVersion", message.keyVersion)
+                json.addProperty("timestamp", message.timestamp)
+            }
+            is BteloMessage.EncryptedData -> {
+                json.addProperty("type", "encryptedData")
+                json.addProperty("data", message.data)
+                json.addProperty("stream", message.stream.name)
+                json.addProperty("keyVersion", message.keyVersion)
             }
         }
         return gson.toJson(json)
@@ -82,6 +108,19 @@ class MessageProtocol(private val gson: Gson) {
                 )
                 "publicKey" -> BteloMessage.PublicKey(
                     key = jsonObject.get("key")?.asString ?: ""
+                )
+                "keyRotation" -> BteloMessage.KeyRotation(
+                    action = jsonObject.get("action")?.asString ?: "",
+                    newPublicKey = jsonObject.get("newPublicKey")?.asString ?: "",
+                    keyVersion = jsonObject.get("keyVersion")?.asInt ?: 0,
+                    timestamp = jsonObject.get("timestamp")?.asLong ?: 0L
+                )
+                "encryptedData" -> BteloMessage.EncryptedData(
+                    data = jsonObject.get("data")?.asString ?: "",
+                    stream = StreamType.valueOf(
+                        jsonObject.get("stream")?.asString?.uppercase() ?: "STDOUT"
+                    ),
+                    keyVersion = jsonObject.get("keyVersion")?.asInt ?: 0
                 )
                 else -> {
                     Logger.w(tag, "未知的消息类型: ${jsonObject.get("type")?.asString}")

@@ -15,7 +15,7 @@ import com.btelo.coding.data.local.entity.SessionEntity
         MessageEntity::class,
         DeviceEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,5 +25,6 @@ abstract class AppDatabase : RoomDatabase() {
     
     companion object {
         const val DATABASE_NAME = "btelo_coding_db"
+        const val DATABASE_VERSION = 2
     }
 }

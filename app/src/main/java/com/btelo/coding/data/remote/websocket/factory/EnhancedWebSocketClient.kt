@@ -2,6 +2,8 @@ package com.btelo.coding.data.remote.websocket.factory
 
 import com.btelo.coding.data.remote.encryption.CryptoManager
 import com.btelo.coding.data.remote.encryption.KeyPair
+import com.btelo.coding.data.remote.encryption.KeyRotationManager
+import com.btelo.coding.data.remote.encryption.KeyRotationState
 import com.btelo.coding.data.remote.network.NetworkMonitor
 import com.btelo.coding.data.remote.websocket.BteloMessage
 import com.btelo.coding.data.remote.websocket.MessageProtocol
@@ -33,14 +35,15 @@ import javax.inject.Singleton
 import kotlin.random.Random
 
 /**
- * 增强的WebSocket客户端，支持重连机制和心跳保活
+ * 增强的WebSocket客户端，支持重连机制、心跳保活和密钥轮换（前向保密）
  */
 class EnhancedWebSocketClient(
     private val okHttpClient: OkHttpClient,
     private val gson: Gson,
     private val cryptoManager: CryptoManager,
     private val networkMonitor: NetworkMonitor,
-    private val secureKeyStore: com.btelo.coding.data.remote.encryption.SecureKeyStore
+    private val secureKeyStore: com.btelo.coding.data.remote.encryption.SecureKeyStore,
+    private val keyRotationManager: KeyRotationManager? = null  // 密钥轮换管理器（可选）
 ) {
     private val tag = "EnhancedWebSocket"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -49,10 +52,12 @@ class EnhancedWebSocketClient(
     private var config: WebSocketConfig? = null
     private var reconnectJob: Job? = null
     private var pingJob: Job? = null
+    private var keyRotationCheckJob: Job? = null
     
     private var keyPair: KeyPair? = null
     private var cipher: com.google.crypto.tink.subtle.ChaCha20Poly1305? = null
     private var isEncrypted = false
+    private var currentKeyVersion = 1  // 当前密钥版本
     
     private val protocol = MessageProtocol(gson)
     
@@ -64,6 +69,9 @@ class EnhancedWebSocketClient(
     
     private val _events = MutableSharedFlow<WebSocketEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<WebSocketEvent> = _events.asSharedFlow()
+    
+    private val _keyRotationState = MutableStateFlow<KeyRotationState>(KeyRotationState.Idle)
+    val keyRotationState: StateFlow<KeyRotationState> = _keyRotationState.asStateFlow()
     
     private var reconnectAttempt = 0
     
@@ -207,8 +215,131 @@ class EnhancedWebSocketClient(
             }
             is BteloMessage.Command -> _messages.tryEmit(message)
             is BteloMessage.Status -> _messages.tryEmit(message)
+            is BteloMessage.KeyRotation -> {
+                handleKeyRotationMessage(message)
+            }
+            is BteloMessage.EncryptedData -> {
+                // 处理带密钥版本的数据消息
+                if (isEncrypted && cipher != null) {
+                    try {
+                        val encryptedData = android.util.Base64.decode(
+                            message.data, android.util.Base64.NO_WRAP
+                        )
+                        // 使用 KeyRotationManager 尝试所有历史密钥
+                        val decryptedData = keyRotationManager?.decryptWithHistory(
+                            config?.sessionId ?: "", encryptedData, message.keyVersion
+                        )
+                        if (decryptedData != null) {
+                            val decryptedMessage = BteloMessage.Output(
+                                data = String(decryptedData),
+                                stream = message.stream
+                            )
+                            _messages.tryEmit(decryptedMessage)
+                        } else {
+                            Logger.w(tag, "无法用任何密钥版本解密消息")
+                            _messages.tryEmit(message)
+                        }
+                    } catch (e: Exception) {
+                        Logger.w(tag, "消息解密失败", e)
+                        _messages.tryEmit(message)
+                    }
+                } else {
+                    _messages.tryEmit(message)
+                }
+            }
         }
     }
+    
+    /**
+     * 处理密钥轮换消息
+     */
+    private fun handleKeyRotationMessage(message: BteloMessage.KeyRotation) {
+        val sessionId = config?.sessionId ?: return
+        
+        Logger.i(tag, "收到密钥轮换消息: action=${message.action}, version=${message.keyVersion}")
+        
+        // 转发给 KeyRotationManager 处理
+        keyRotationManager?.let { manager ->
+            val rotationMessage = com.btelo.coding.data.remote.encryption.KeyRotationMessage(
+                action = message.action,
+                newPublicKey = message.newPublicKey,
+                keyVersion = message.keyVersion,
+                timestamp = message.timestamp
+            )
+            
+            val response = manager.handleRotationHandshake(sessionId, rotationMessage)
+            _keyRotationState.value = manager.rotationState.value
+            
+            // 发送响应消息
+            response?.let {
+                val responseMessage = BteloMessage.KeyRotation(
+                    action = it.action,
+                    newPublicKey = it.newPublicKey,
+                    keyVersion = it.keyVersion,
+                    timestamp = it.timestamp
+                )
+                webSocket?.send(protocol.serialize(responseMessage))
+            }
+            
+            // 轮换完成后，重新协商新的会话密钥
+            if (message.action == "complete" || response?.action == "complete") {
+                // 通知密钥轮换完成，需要重新进行密钥协商
+                scope.launch {
+                    _events.emit(WebSocketEvent.KeyRotationCompleted(currentKeyVersion, message.keyVersion))
+                }
+            }
+        }
+    }
+    
+    /**
+     * 触发密钥轮换
+     */
+    fun triggerKeyRotation(): Boolean {
+        val sessionId = config?.sessionId ?: return false
+        
+        Logger.i(tag, "触发密钥轮换")
+        
+        keyRotationManager?.let { manager ->
+            val handshake = manager.generateRotationHandshake(sessionId)
+            _keyRotationState.value = manager.rotationState.value
+            
+            val message = BteloMessage.KeyRotation(
+                action = handshake.action,
+                newPublicKey = handshake.newPublicKey,
+                keyVersion = handshake.keyVersion,
+                timestamp = handshake.timestamp
+            )
+            
+            return webSocket?.send(protocol.serialize(message)) ?: false
+        }
+        
+        return false
+    }
+    
+    /**
+     * 启动密钥轮换检查（定时检查是否需要轮换）
+     */
+    private fun startKeyRotationCheck() {
+        val sessionId = config?.sessionId ?: return
+        
+        keyRotationCheckJob = scope.launch {
+            while (true) {
+                delay(60 * 1000) // 每分钟检查一次
+                
+                keyRotationManager?.let { manager ->
+                    if (manager.shouldRotate(sessionId)) {
+                        Logger.i(tag, "触发定时密钥轮换")
+                        triggerKeyRotation()
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * 获取当前密钥版本
+     */
+    fun getCurrentKeyVersion(): Int = currentKeyVersion
     
     private fun scheduleReconnect() {
         val config = config ?: return
@@ -294,12 +425,15 @@ class EnhancedWebSocketClient(
     fun disconnect(): Boolean {
         reconnectJob?.cancel()
         stopPingPong()
+        keyRotationCheckJob?.cancel()
         webSocket?.close(1000, "User disconnected")
         webSocket = null
         _connectionState.value = ConnectionState.Disconnected
+        _keyRotationState.value = KeyRotationState.Idle
         keyPair = null
         cipher = null
         isEncrypted = false
+        currentKeyVersion = 1
         return true
     }
     

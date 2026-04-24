@@ -34,6 +34,10 @@ sealed class WebSocketEvent {
     data class Reconnecting(val sessionId: String, val attempt: Int, val delayMs: Long) : WebSocketEvent()
     data class ReconnectFailed(val sessionId: String, val error: String) : WebSocketEvent()
     data class Error(val sessionId: String, val error: String) : WebSocketEvent()
+    // 密钥轮换事件
+    data class KeyRotationStarted(val sessionId: String, val newVersion: Int) : WebSocketEvent()
+    data class KeyRotationCompleted(val previousVersion: Int, val newVersion: Int) : WebSocketEvent()
+    data class KeyRotationFailed(val sessionId: String, val error: String) : WebSocketEvent()
 }
 
 /**
