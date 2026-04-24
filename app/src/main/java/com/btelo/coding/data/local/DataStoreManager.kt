@@ -22,6 +22,7 @@ class DataStoreManager @Inject constructor(
         private const val KEY_SERVER_ADDRESS = "server_address"
         private const val KEY_USERNAME = "username"
         private const val KEY_USER_ID = "user_id"
+        private const val KEY_DEVICE_ID = "device_id"
         
         // Sensitive keys (stored in encrypted preferences)
         private const val KEY_TOKEN = "auth_token"
@@ -111,6 +112,16 @@ class DataStoreManager @Inject constructor(
     
     suspend fun saveServerAddress(serverAddress: String) {
         regularPrefs.edit().putString(KEY_SERVER_ADDRESS, serverAddress).apply()
+    }
+    
+    // ========== Device ID (Non-encrypted) ==========
+    
+    val deviceId: Flow<String?> = kotlinx.coroutines.flow.flow {
+        emit(regularPrefs.getString(KEY_DEVICE_ID, null))
+    }
+    
+    suspend fun saveDeviceId(deviceId: String) {
+        regularPrefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
     }
     
     // ========== Combined Auth Save/Clear ==========

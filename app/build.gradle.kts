@@ -55,6 +55,14 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    // 修改APK输出文件名：项目名+版本号
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "Yami-Coding-${versionName}.apk"
+        }
+    }
 }
 
 dependencies {

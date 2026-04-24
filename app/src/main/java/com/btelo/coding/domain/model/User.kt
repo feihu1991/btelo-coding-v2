@@ -5,3 +5,9 @@ data class User(
     val username: String,
     val token: String
 )
+
+data class Device(
+    val deviceId: String,
+    val pairingCode: String,
+    val expiresAt: String? = null
+)

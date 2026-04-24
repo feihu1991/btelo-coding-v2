@@ -2,6 +2,7 @@ package com.btelo.coding.data.repository
 
 import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.data.remote.api.AuthApi
+import com.btelo.coding.domain.model.Device
 import com.btelo.coding.domain.model.User
 import com.btelo.coding.domain.repository.AuthRepository
 import kotlinx.coroutines.flow.Flow
@@ -71,5 +72,47 @@ class AuthRepositoryImpl @Inject constructor(
 
     override fun getToken(): Flow<String?> {
         return dataStoreManager.getTokenFlow()
+    }
+
+    // ========== Device Pairing Methods ==========
+
+    override suspend fun registerDevice(
+        serverAddress: String,
+        deviceName: String,
+        deviceType: String
+    ): Result<Device> {
+        return authApi.registerDevice(serverAddress, deviceName, deviceType).map { response ->
+            if (!response.success) {
+                throw Exception(response.message)
+            }
+            // Save device info
+            dataStoreManager.saveServerAddress(serverAddress)
+            dataStoreManager.saveDeviceId(response.device_id)
+            Device(
+                deviceId = response.device_id,
+                pairingCode = response.pairing_code ?: ""
+            )
+        }
+    }
+
+    override suspend fun getPairingCode(
+        serverAddress: String,
+        deviceId: String
+    ): Result<Device> {
+        return authApi.getPairingCode(serverAddress, deviceId).map { response ->
+            Device(
+                deviceId = response.device_id,
+                pairingCode = response.pairing_code,
+                expiresAt = response.expires_at
+            )
+        }
+    }
+
+    override suspend fun saveDeviceId(deviceId: String) {
+        dataStoreManager.saveDeviceId(deviceId)
+    }
+
+    override fun getDeviceId(): Flow<String?> {
+        return dataStoreManager.deviceId
     }
 }

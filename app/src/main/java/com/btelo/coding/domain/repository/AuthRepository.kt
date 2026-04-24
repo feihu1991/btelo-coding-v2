@@ -1,5 +1,6 @@
 package com.btelo.coding.domain.repository
 
+import com.btelo.coding.domain.model.Device
 import com.btelo.coding.domain.model.User
 import kotlinx.coroutines.flow.Flow
 
@@ -10,4 +11,10 @@ interface AuthRepository {
     fun getCurrentUser(): Flow<User?>
     fun getServerAddress(): Flow<String?>
     fun getToken(): Flow<String?>
+    
+    // Device pairing methods
+    suspend fun registerDevice(serverAddress: String, deviceName: String, deviceType: String): Result<Device>
+    suspend fun getPairingCode(serverAddress: String, deviceId: String): Result<Device>
+    suspend fun saveDeviceId(deviceId: String)
+    fun getDeviceId(): Flow<String?>
 }

@@ -43,7 +43,7 @@ jobs:
           ## Yami-Coding Android ${{ steps.get_version.outputs.VERSION }}
           
           ### 安装方法
-          1. 下载 `app-release.apk`
+          1. 下载 `Yami-Coding-${{ steps.get_version.outputs.VERSION }}.apk`
           2. 在 Android 设备上安装
           
           ### 功能特性
