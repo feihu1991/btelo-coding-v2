@@ -342,7 +342,7 @@ class KeyRotationManager @Inject constructor(
         
         return try {
             @Suppress("UNCHECKED_CAST")
-            val metadataList = gson.fromJson(json, Array<Map<*, *>>::class.java) as Array<Map<String, Any>>
+            val metadataList = gson.fromJson(json, Array<Map<String, Any>>::class.java)
             metadataList.mapNotNull { metadata ->
                 val version = (metadata["version"] as Double).toInt()
                 val createdAt = (metadata["createdAt"] as Double).toLong()
