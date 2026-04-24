@@ -53,6 +53,7 @@ class EnhancedWebSocketClient(
     private var keyPair: KeyPair? = null
     private var cipher: com.google.crypto.tink.subtle.ChaCha20Poly1305? = null
     private var isEncrypted = false
+        return true
     
     private val protocol = MessageProtocol(gson)
     
@@ -109,6 +110,7 @@ class EnhancedWebSocketClient(
         keyPair = secureKeyStore.getKeyPair(config.sessionId) ?: secureKeyStore.generateAndStoreKeyPair(config.sessionId)
         cipher = null
         isEncrypted = false
+        return true
         
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -268,7 +270,7 @@ class EnhancedWebSocketClient(
         pingJob = null
     }
     
-    fun send(message: BteloMessage) {
+    fun send(message: BteloMessage): Boolean {
         val messageToSend = if (isEncrypted && cipher != null && message is BteloMessage.Command) {
             try {
                 val encryptedData = cryptoManager.encrypt(
@@ -287,10 +289,10 @@ class EnhancedWebSocketClient(
         }
         
         val json = protocol.serialize(messageToSend)
-        webSocket?.send(json)
+        return webSocket?.send(json) ?: false
     }
     
-    fun disconnect() {
+    fun disconnect(): Boolean {
         reconnectJob?.cancel()
         stopPingPong()
         webSocket?.close(1000, "User disconnected")
@@ -299,6 +301,7 @@ class EnhancedWebSocketClient(
         keyPair = null
         cipher = null
         isEncrypted = false
+        return true
     }
     
     fun destroy() {
