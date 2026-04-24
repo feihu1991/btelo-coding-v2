@@ -7,6 +7,7 @@ import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.domain.repository.SessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,34 +34,40 @@ class ChatViewModel @Inject constructor(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private var sessionId: String = ""
+    
+    // Store coroutine jobs for proper cancellation
+    private val coroutineJobs = mutableListOf<Job>()
 
     fun setSessionId(id: String) {
         sessionId = id
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             val serverAddress = authRepository.getServerAddress().firstOrNull() ?: ""
             val token = authRepository.getToken().firstOrNull() ?: ""
             if (serverAddress.isNotBlank() && token.isNotBlank()) {
                 messageRepository.connect(serverAddress, token, sessionId)
             }
         }
+        coroutineJobs.add(job)
         loadMessages()
         observeOutput()
     }
 
     private fun loadMessages() {
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             messageRepository.getMessages(sessionId).collect { messages ->
                 _uiState.value = _uiState.value.copy(messages = messages)
             }
         }
+        coroutineJobs.add(job)
     }
 
     private fun observeOutput() {
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
             messageRepository.observeOutput(sessionId).collect { message ->
                 // Messages are already added in repository
             }
         }
+        coroutineJobs.add(job)
     }
 
     fun updateInputText(text: String) {
@@ -85,5 +92,16 @@ class ChatViewModel @Inject constructor(
                     )
                 }
         }
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        // Cancel all coroutine jobs to prevent memory leaks
+        coroutineJobs.forEach { job ->
+            if (job.isActive) {
+                job.cancel()
+            }
+        }
+        coroutineJobs.clear()
     }
 }

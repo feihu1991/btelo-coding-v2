@@ -179,6 +179,7 @@ class EnhancedWebSocketClient(
                     val sharedSecret = cryptoManager.deriveSharedSecret(
                         keyPair!!.privateKey, remotePublicKey
                     )
+                    // Use HKDF to derive the cipher key from shared secret (following NIST SP 800-56C)
                     cipher = cryptoManager.createCipherFromSharedSecret(sharedSecret)
                     isEncrypted = true
                     _messages.tryEmit(BteloMessage.Status(connected = true))

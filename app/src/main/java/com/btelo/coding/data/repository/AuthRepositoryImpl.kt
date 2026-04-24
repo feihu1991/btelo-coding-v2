@@ -22,6 +22,7 @@ class AuthRepositoryImpl @Inject constructor(
         password: String
     ): Result<User> {
         return authApi.login(serverAddress, username, password).map { response ->
+            // Save token using encrypted storage
             dataStoreManager.saveAuth(
                 token = response.token,
                 userId = response.userId,
@@ -41,12 +42,14 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override fun isLoggedIn(): Flow<Boolean> {
-        return dataStoreManager.token.map { it != null }
+        return dataStoreManager.serverAddress.map { 
+            dataStoreManager.hasToken()
+        }
     }
 
     override fun getCurrentUser(): Flow<User?> {
         return combine(
-            dataStoreManager.token,
+            dataStoreManager.getTokenFlow(),
             dataStoreManager.userId,
             dataStoreManager.username
         ) { token, userId, username ->
@@ -67,6 +70,6 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override fun getToken(): Flow<String?> {
-        return dataStoreManager.token
+        return dataStoreManager.getTokenFlow()
     }
 }

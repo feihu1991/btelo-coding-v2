@@ -13,9 +13,11 @@ import com.btelo.coding.data.remote.encryption.SecureKeyStore
 import com.btelo.coding.data.remote.network.NetworkMonitor
 import com.btelo.coding.data.remote.websocket.factory.WebSocketClientFactory
 import com.btelo.coding.data.repository.AuthRepositoryImpl
+import com.btelo.coding.data.repository.DeviceRepositoryImpl
 import com.btelo.coding.data.repository.MessageRepositoryImpl
 import com.btelo.coding.data.repository.SessionRepositoryImpl
 import com.btelo.coding.domain.repository.AuthRepository
+import com.btelo.coding.domain.repository.DeviceRepository
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.domain.repository.SessionRepository
 import com.btelo.coding.util.Logger
@@ -127,6 +129,15 @@ object AppModule {
     @Singleton
     fun provideDeviceDao(database: AppDatabase): DeviceDao {
         return database.deviceDao()
+    }
+    
+    @Provides
+    @Singleton
+    fun provideDeviceRepository(
+        deviceDao: DeviceDao,
+        cryptoManager: CryptoManager
+    ): DeviceRepository {
+        return DeviceRepositoryImpl(deviceDao, cryptoManager)
     }
 
     @Provides

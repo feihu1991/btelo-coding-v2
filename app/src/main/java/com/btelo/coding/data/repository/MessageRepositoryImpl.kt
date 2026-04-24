@@ -142,9 +142,7 @@ class MessageRepositoryImpl @Inject constructor(
         Logger.i(tag, "断开会话: $sessionId")
     }
     
-    override fun getConnectionState(): StateFlow<ConnectionState> {
-        return _connectionState
-    }
+    // 移除显式的 getConnectionState 方法，因为 val connectionState 会自动生成 getter
     
     /**
      * 清理旧的聊天记录（保留最近的消息）
