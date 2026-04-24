@@ -124,7 +124,7 @@ private fun SyncSettingsCard(
                 style = MaterialTheme.typography.titleMedium
             )
             
-            HorizontalDivider()
+            Divider()
             
             // 同步总开关
             Row(
@@ -197,7 +197,7 @@ private fun SyncInfoCard(
                 style = MaterialTheme.typography.titleMedium
             )
             
-            HorizontalDivider()
+            Divider()
             
             // 上次同步时间
             Row(

@@ -109,7 +109,7 @@ class SyncSettingsViewModel @Inject constructor(
     /**
      * 获取同步摘要
      */
-    fun getSyncSummary(): Map<String, Any> {
+    suspend fun getSyncSummary(): Map<String, Any> {
         return syncManager.getSyncSummary()
     }
     

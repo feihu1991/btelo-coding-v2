@@ -9,6 +9,9 @@ import com.btelo.coding.util.Logger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import javax.inject.Inject
@@ -26,12 +29,12 @@ class NetworkMonitor @Inject constructor(
     private val tag = "NetworkMonitor"
     
     // 用于同步访问的StateFlow
-    private val _isOnline = kotlinx.coroutines.flow.MutableStateFlow(isCurrentlyConnected())
+    private val _isOnline = MutableStateFlow(isCurrentlyConnected())
     
     /**
      * 网络在线状态（同步访问）
      */
-    val isOnline: kotlinx.coroutines.flow.StateFlow<Boolean> = _isOnline.asStateFlow()
+    val isOnline: StateFlow<Boolean> = _isOnline.asStateFlow()
     
     /**
      * 网络连接状态Flow

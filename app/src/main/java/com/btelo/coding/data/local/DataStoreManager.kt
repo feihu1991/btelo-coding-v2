@@ -151,9 +151,9 @@ class DataStoreManager @Inject constructor(
     
     // ========== Sync Related Keys ==========
     
-    private const val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
-    private const val KEY_SYNC_ENABLED = "sync_enabled"
-    private const val KEY_AUTO_SYNC_ENABLED = "auto_sync_enabled"
+    private val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
+    private val KEY_SYNC_ENABLED = "sync_enabled"
+    private val KEY_AUTO_SYNC_ENABLED = "auto_sync_enabled"
     
     // ========== Device ID Sync (Synchronous access) ==========
     
