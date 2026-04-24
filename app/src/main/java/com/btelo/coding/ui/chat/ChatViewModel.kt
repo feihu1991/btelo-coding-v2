@@ -2,6 +2,7 @@ package com.btelo.coding.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.domain.model.Message
 import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
@@ -20,7 +21,12 @@ data class ChatUiState(
     val inputText: String = "",
     val isLoading: Boolean = false,
     val isConnected: Boolean = false,
-    val error: String? = null
+    val connectionState: ConnectionState = ConnectionState.Disconnected,
+    val reconnectAttempts: Int = 0,
+    val lastConnectedTime: Long? = null,
+    val errorMessage: String? = null,
+    val error: String? = null,
+    val showConnectionDetails: Boolean = false
 )
 
 @HiltViewModel
@@ -50,6 +56,7 @@ class ChatViewModel @Inject constructor(
         coroutineJobs.add(job)
         loadMessages()
         observeOutput()
+        observeConnectionState()
     }
 
     private fun loadMessages() {
@@ -65,6 +72,36 @@ class ChatViewModel @Inject constructor(
         val job = viewModelScope.launch {
             messageRepository.observeOutput(sessionId).collect { message ->
                 // Messages are already added in repository
+            }
+        }
+        coroutineJobs.add(job)
+    }
+
+    private fun observeConnectionState() {
+        val job = viewModelScope.launch {
+            messageRepository.connectionState.collect { state ->
+                val isConnected = state is ConnectionState.Connected
+                val reconnectAttempts = when (state) {
+                    is ConnectionState.Reconnecting -> state.attempt
+                    else -> 0
+                }
+                val errorMessage = when (state) {
+                    is ConnectionState.Error -> state.message
+                    else -> null
+                }
+                val lastConnectedTime = if (state is ConnectionState.Connected) {
+                    System.currentTimeMillis()
+                } else {
+                    _uiState.value.lastConnectedTime
+                }
+                
+                _uiState.value = _uiState.value.copy(
+                    connectionState = state,
+                    isConnected = isConnected,
+                    reconnectAttempts = reconnectAttempts,
+                    errorMessage = errorMessage,
+                    lastConnectedTime = lastConnectedTime
+                )
             }
         }
         coroutineJobs.add(job)
@@ -92,6 +129,16 @@ class ChatViewModel @Inject constructor(
                     )
                 }
         }
+    }
+
+    fun toggleConnectionDetails() {
+        _uiState.value = _uiState.value.copy(
+            showConnectionDetails = !_uiState.value.showConnectionDetails
+        )
+    }
+
+    fun dismissConnectionDetails() {
+        _uiState.value = _uiState.value.copy(showConnectionDetails = false)
     }
     
     override fun onCleared() {
