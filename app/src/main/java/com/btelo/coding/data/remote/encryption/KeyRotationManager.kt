@@ -341,7 +341,8 @@ class KeyRotationManager @Inject constructor(
         val json = prefs.getString(PREFS_HISTORY_PREFIX + sessionId, null) ?: return emptyList()
         
         return try {
-            val metadataList = gson.fromJson(json, Array<Map<String, Any>>::class.java)
+            @Suppress("UNCHECKED_CAST")
+            val metadataList = gson.fromJson(json, Array<Map<*, *>>::class.java) as Array<Map<String, Any>>
             metadataList.mapNotNull { metadata ->
                 val version = (metadata["version"] as Double).toInt()
                 val createdAt = (metadata["createdAt"] as Double).toLong()
