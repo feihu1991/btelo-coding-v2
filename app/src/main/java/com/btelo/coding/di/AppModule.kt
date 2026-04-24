@@ -93,9 +93,10 @@ object AppModule {
         okHttpClient: OkHttpClient,
         gson: Gson,
         cryptoManager: CryptoManager,
-        networkMonitor: NetworkMonitor
+        networkMonitor: NetworkMonitor,
+        secureKeyStore: SecureKeyStore
     ): WebSocketClientFactory {
-        return WebSocketClientFactory(okHttpClient, gson, cryptoManager, networkMonitor)
+        return WebSocketClientFactory(okHttpClient, gson, cryptoManager, networkMonitor, secureKeyStore)
     }
     
     @Provides

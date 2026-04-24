@@ -82,12 +82,13 @@ class WebSocketClientFactory @Inject constructor(
     /**
      * 断开指定会话的连接
      */
-    fun disconnect(sessionId: String) {
-        clients[sessionId]?.let { client ->
+    fun disconnect(sessionId: String): Boolean {
+        return clients[sessionId]?.let { client ->
             Logger.i(tag, "断开会话: $sessionId")
             client.disconnect()
             clients.remove(sessionId)
-        }
+            true
+        } ?: false
     }
     
     /**

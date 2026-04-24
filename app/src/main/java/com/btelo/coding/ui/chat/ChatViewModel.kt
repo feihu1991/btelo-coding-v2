@@ -40,7 +40,7 @@ class ChatViewModel @Inject constructor(
             val serverAddress = authRepository.getServerAddress().firstOrNull() ?: ""
             val token = authRepository.getToken().firstOrNull() ?: ""
             if (serverAddress.isNotBlank() && token.isNotBlank()) {
-                messageRepository.connect(serverAddress, token)
+                messageRepository.connect(serverAddress, token, sessionId)
             }
         }
         loadMessages()
