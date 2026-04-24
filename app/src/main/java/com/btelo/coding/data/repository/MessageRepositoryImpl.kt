@@ -44,6 +44,8 @@ class MessageRepositoryImpl @Inject constructor(
     
     // 连接状态
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+    override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+    
     override fun connect(serverAddress: String, token: String, sessionId: String) {
         _currentSessionId.value = sessionId
         
@@ -139,8 +141,6 @@ class MessageRepositoryImpl @Inject constructor(
         _connectionState.value = ConnectionState.Disconnected
         Logger.i(tag, "断开会话: $sessionId")
     }
-    
-    // 移除显式的 getConnectionState 方法，因为 val connectionState 会自动生成 getter
     
     /**
      * 清理旧的聊天记录（保留最近的消息）
