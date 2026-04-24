@@ -8,4 +8,6 @@ interface SessionRepository {
     suspend fun createSession(tool: String): Session
     suspend fun deleteSession(sessionId: String)
     fun getSession(sessionId: String): Flow<Session?>
+    suspend fun updateSessionConnection(sessionId: String, isConnected: Boolean)
+    suspend fun updateSessionLastActive(sessionId: String)
 }
