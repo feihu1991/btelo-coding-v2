@@ -109,7 +109,6 @@ class EnhancedWebSocketClient(
         keyPair = secureKeyStore.getKeyPair(config.sessionId) ?: secureKeyStore.generateAndStoreKeyPair(config.sessionId)
         cipher = null
         isEncrypted = false
-        return true
         
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
