@@ -2,7 +2,8 @@ package com.btelo.coding.data.repository
 
 import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.data.remote.api.AuthApi
-import com.btelo.coding.domain.model.Device
+import com.btelo.coding.domain.model.DeviceRegisterResponse
+import com.btelo.coding.domain.model.PairingCodeResponse
 import com.btelo.coding.domain.model.User
 import com.btelo.coding.domain.repository.AuthRepository
 import kotlinx.coroutines.flow.Flow
@@ -80,7 +81,7 @@ class AuthRepositoryImpl @Inject constructor(
         serverAddress: String,
         deviceName: String,
         deviceType: String
-    ): Result<Device> {
+    ): Result<DeviceRegisterResponse> {
         return authApi.registerDevice(serverAddress, deviceName, deviceType).map { response ->
             if (!response.success) {
                 throw Exception(response.message)
@@ -88,7 +89,7 @@ class AuthRepositoryImpl @Inject constructor(
             // Save device info
             dataStoreManager.saveServerAddress(serverAddress)
             dataStoreManager.saveDeviceId(response.device_id)
-            Device(
+            DeviceRegisterResponse(
                 deviceId = response.device_id,
                 pairingCode = response.pairing_code ?: ""
             )
@@ -98,9 +99,9 @@ class AuthRepositoryImpl @Inject constructor(
     override suspend fun getPairingCode(
         serverAddress: String,
         deviceId: String
-    ): Result<Device> {
+    ): Result<PairingCodeResponse> {
         return authApi.getPairingCode(serverAddress, deviceId).map { response ->
-            Device(
+            PairingCodeResponse(
                 deviceId = response.device_id,
                 pairingCode = response.pairing_code,
                 expiresAt = response.expires_at

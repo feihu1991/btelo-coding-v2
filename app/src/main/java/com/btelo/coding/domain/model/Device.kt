@@ -7,3 +7,16 @@ data class Device(
     val isOnline: Boolean,
     val lastSeen: Long
 )
+
+// 设备注册响应
+data class DeviceRegisterResponse(
+    val deviceId: String,
+    val pairingCode: String
+)
+
+// 配对码响应
+data class PairingCodeResponse(
+    val deviceId: String,
+    val pairingCode: String,
+    val expiresAt: String? = null
+)

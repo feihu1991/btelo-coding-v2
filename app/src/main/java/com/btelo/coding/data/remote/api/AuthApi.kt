@@ -14,19 +14,19 @@ data class LoginResponse(
     val username: String
 )
 
-data class DeviceRegisterRequest(
+data class DeviceRegisterApiRequest(
     val device_name: String,
     val device_type: String = "mobile"
 )
 
-data class DeviceRegisterResponse(
+data class DeviceRegisterApiResponse(
     val success: Boolean,
     val device_id: String,
     val pairing_code: String?,
     val message: String
 )
 
-data class PairingCodeResponse(
+data class PairingCodeApiResponse(
     val device_id: String,
     val pairing_code: String,
     val expires_at: String? = null
@@ -67,23 +67,23 @@ class AuthApi(
         serverAddress: String,
         deviceName: String,
         deviceType: String = "mobile"
-    ): Result<DeviceRegisterResponse> {
+    ): Result<DeviceRegisterApiResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val requestBody = DeviceRegisterRequest(
+                val requestBody = DeviceRegisterApiRequest(
                     device_name = deviceName,
                     device_type = deviceType
                 )
                 val json = gson.toJson(requestBody)
                 val request = Request.Builder()
-                    .url("$serverAddress/api/device/register")
+                    .url("$serverAddress/device/register")
                     .post(json.toRequestBody("application/json".toMediaType()))
                     .build()
 
                 val response = okHttpClient.newCall(request).execute()
                 if (response.isSuccessful) {
                     val body = response.body?.string() ?: ""
-                    val registerResponse = gson.fromJson(body, DeviceRegisterResponse::class.java)
+                    val registerResponse = gson.fromJson(body, DeviceRegisterApiResponse::class.java)
                     Result.success(registerResponse)
                 } else {
                     Result.failure(Exception("Device registration failed: ${response.code}"))
@@ -97,18 +97,18 @@ class AuthApi(
     suspend fun getPairingCode(
         serverAddress: String,
         deviceId: String
-    ): Result<PairingCodeResponse> {
+    ): Result<PairingCodeApiResponse> {
         return withContext(Dispatchers.IO) {
             try {
                 val request = Request.Builder()
-                    .url("$serverAddress/api/device/$deviceId/pairing-code")
+                    .url("$serverAddress/device/$deviceId/pairing-code")
                     .get()
                     .build()
 
                 val response = okHttpClient.newCall(request).execute()
                 if (response.isSuccessful) {
                     val body = response.body?.string() ?: ""
-                    val pairingResponse = gson.fromJson(body, PairingCodeResponse::class.java)
+                    val pairingResponse = gson.fromJson(body, PairingCodeApiResponse::class.java)
                     Result.success(pairingResponse)
                 } else {
                     Result.failure(Exception("Failed to get pairing code: ${response.code}"))

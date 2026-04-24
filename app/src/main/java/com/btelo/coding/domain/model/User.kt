@@ -6,8 +6,4 @@ data class User(
     val token: String
 )
 
-data class Device(
-    val deviceId: String,
-    val pairingCode: String,
-    val expiresAt: String? = null
-)
+// Device类定义在Device.kt中
