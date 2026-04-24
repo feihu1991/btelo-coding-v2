@@ -1,0 +1,22 @@
+[
+    {
+        "merged": "com.btelo.coding.app-merged_res-71:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.btelo.coding.app-main-73:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "com.btelo.coding.app-merged_res-71:/drawable_ic_notification.xml.flat",
+        "source": "com.btelo.coding.app-main-73:/drawable/ic_notification.xml"
+    },
+    {
+        "merged": "com.btelo.coding.app-merged_res-71:/mipmap-xxxhdpi_ic_launcher.webp.flat",
+        "source": "com.btelo.coding.app-main-73:/mipmap-xxxhdpi/ic_launcher.webp"
+    },
+    {
+        "merged": "com.btelo.coding.app-merged_res-71:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.btelo.coding.app-main-73:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.btelo.coding.app-merged_res-71:/drawable_ic_launcher_background.xml.flat",
+        "source": "com.btelo.coding.app-main-73:/drawable/ic_launcher_background.xml"
+    }
+]
