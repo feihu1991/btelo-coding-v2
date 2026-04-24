@@ -91,7 +91,7 @@ class BteloWebSocketClient(
         })
     }
 
-    fun send(message: BteloMessage) {
+    fun send(message: BteloMessage): Boolean {
         val messageToSend = if (isEncrypted && cipher != null && message is BteloMessage.Command) {
             val encryptedData = cryptoManager.encrypt(
                 message.content.toByteArray(), cipher!!
@@ -104,7 +104,7 @@ class BteloWebSocketClient(
             message
         }
         val json = protocol.serialize(messageToSend)
-        webSocket?.send(json)
+        return webSocket?.send(json) ?: false
     }
 
     fun disconnect(): Boolean {
