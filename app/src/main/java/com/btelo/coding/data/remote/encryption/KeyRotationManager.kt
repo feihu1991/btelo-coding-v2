@@ -5,6 +5,7 @@ import android.util.Base64
 import com.btelo.coding.util.AppException
 import com.btelo.coding.util.Logger
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.google.gson.JsonObject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -341,8 +342,9 @@ class KeyRotationManager @Inject constructor(
         val json = prefs.getString(PREFS_HISTORY_PREFIX + sessionId, null) ?: return emptyList()
         
         return try {
+            val type = object : TypeToken<Array<Map<String, Any>>>() {}.type
             @Suppress("UNCHECKED_CAST")
-            val metadataList = gson.fromJson(json, Array<Map<String, Any>>::class.java)
+            val metadataList = gson.fromJson<Array<Map<String, Any>>>(json, type)
             metadataList.mapNotNull { metadata ->
                 val version = (metadata["version"] as Double).toInt()
                 val createdAt = (metadata["createdAt"] as Double).toLong()
