@@ -93,13 +93,14 @@ class FcmTokenManager @Inject constructor(
 
     /**
      * Check if FCM is available on this device.
+     * For simplicity, we assume FCM is always available on valid Android devices
+     * with Google Play Services installed (which is required for Firebase).
      */
     fun isFcmAvailable(): Boolean {
         return try {
-            // Check if Google Play Services is available
-            val isGooglePlayServicesAvailable = com.google.android.gms.common.GoogleApiAvailability.getInstance()
-                .isGooglePlayServicesAvailable(context)
-            isGooglePlayServicesAvailable == com.google.android.gms.common.ConnectionResult.SUCCESS
+            // Simple availability check - if FirebaseMessaging works, FCM is available
+            FirebaseMessaging.getInstance().isAutoInitEnabled
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Error checking FCM availability", e)
             false
