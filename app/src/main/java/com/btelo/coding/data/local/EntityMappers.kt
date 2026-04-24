@@ -59,7 +59,27 @@ object EntityMappers {
             content = content,
             type = type.name,
             timestamp = timestamp,
-            isFromUser = isFromUser
+            isFromUser = isFromUser,
+            version = 1,
+            deviceId = null,
+            isSynced = false,
+            isDeleted = false
+        )
+    }
+    
+    // MessageEntity 到 MessageEntity（带同步字段的完整映射）
+    fun MessageEntity.toEntityWithSync(version: Int, deviceId: String?, isSynced: Boolean, isDeleted: Boolean = false): MessageEntity {
+        return MessageEntity(
+            id = id,
+            sessionId = sessionId,
+            content = content,
+            type = type,
+            timestamp = timestamp,
+            isFromUser = isFromUser,
+            version = version,
+            deviceId = deviceId,
+            isSynced = isSynced,
+            isDeleted = isDeleted
         )
     }
     

@@ -148,4 +148,65 @@ class DataStoreManager @Inject constructor(
     fun hasToken(): Boolean {
         return encryptedPrefs.getString(KEY_TOKEN, null) != null
     }
+    
+    // ========== Sync Related Keys ==========
+    
+    private const val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
+    private const val KEY_SYNC_ENABLED = "sync_enabled"
+    private const val KEY_AUTO_SYNC_ENABLED = "auto_sync_enabled"
+    
+    // ========== Device ID Sync (Synchronous access) ==========
+    
+    /**
+     * Get device ID synchronously (for sync operations)
+     */
+    fun getDeviceIdSync(): String? {
+        return regularPrefs.getString(KEY_DEVICE_ID, null)
+    }
+    
+    // ========== Last Sync Timestamp ==========
+    
+    /**
+     * Get last sync timestamp
+     */
+    fun getLastSyncTimestamp(): Long {
+        return regularPrefs.getLong(KEY_LAST_SYNC_TIMESTAMP, 0L)
+    }
+    
+    /**
+     * Save last sync timestamp
+     */
+    fun saveLastSyncTimestamp(timestamp: Long) {
+        regularPrefs.edit().putLong(KEY_LAST_SYNC_TIMESTAMP, timestamp).apply()
+    }
+    
+    // ========== Sync Settings ==========
+    
+    /**
+     * Check if sync is enabled
+     */
+    fun isSyncEnabled(): Boolean {
+        return regularPrefs.getBoolean(KEY_SYNC_ENABLED, true)
+    }
+    
+    /**
+     * Set sync enabled
+     */
+    fun setSyncEnabled(enabled: Boolean) {
+        regularPrefs.edit().putBoolean(KEY_SYNC_ENABLED, enabled).apply()
+    }
+    
+    /**
+     * Check if auto sync is enabled
+     */
+    fun isAutoSyncEnabled(): Boolean {
+        return regularPrefs.getBoolean(KEY_AUTO_SYNC_ENABLED, true)
+    }
+    
+    /**
+     * Set auto sync enabled
+     */
+    fun setAutoSyncEnabled(enabled: Boolean) {
+        regularPrefs.edit().putBoolean(KEY_AUTO_SYNC_ENABLED, enabled).apply()
+    }
 }

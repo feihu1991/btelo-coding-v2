@@ -25,6 +25,14 @@ class NetworkMonitor @Inject constructor(
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val tag = "NetworkMonitor"
     
+    // 用于同步访问的StateFlow
+    private val _isOnline = kotlinx.coroutines.flow.MutableStateFlow(isCurrentlyConnected())
+    
+    /**
+     * 网络在线状态（同步访问）
+     */
+    val isOnline: kotlinx.coroutines.flow.StateFlow<Boolean> = _isOnline.asStateFlow()
+    
     /**
      * 网络连接状态Flow
      */
@@ -32,11 +40,13 @@ class NetworkMonitor @Inject constructor(
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 Logger.d(tag, "网络可用")
+                _isOnline.value = true
                 trySend(true)
             }
             
             override fun onLost(network: Network) {
                 Logger.d(tag, "网络断开")
+                _isOnline.value = false
                 trySend(false)
             }
             
@@ -48,6 +58,7 @@ class NetworkMonitor @Inject constructor(
                     NetworkCapabilities.NET_CAPABILITY_INTERNET
                 )
                 Logger.d(tag, "网络能力变化, hasInternet=$hasInternet")
+                _isOnline.value = hasInternet
                 trySend(hasInternet)
             }
         }

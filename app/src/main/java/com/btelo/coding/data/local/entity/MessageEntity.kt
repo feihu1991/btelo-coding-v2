@@ -24,5 +24,10 @@ data class MessageEntity(
     val content: String,
     val type: String, // COMMAND, OUTPUT, ERROR
     val timestamp: Long,
-    val isFromUser: Boolean
+    val isFromUser: Boolean,
+    // 同步相关字段
+    val version: Int = 1,           // 版本号，用于冲突解决
+    val deviceId: String? = null,  // 发送设备ID
+    val isSynced: Boolean = false, // 是否已同步到服务器
+    val isDeleted: Boolean = false // 软删除标记
 )
