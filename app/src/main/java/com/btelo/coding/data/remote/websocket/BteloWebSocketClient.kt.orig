@@ -107,11 +107,10 @@ class BteloWebSocketClient(
         webSocket?.send(json)
     }
 
-    fun disconnect(): Boolean {
+    fun disconnect() {
         webSocket?.close(1000, "User disconnected")
         webSocket = null
         isEncrypted = false
         cipher = null
-        return true
     }
 }
