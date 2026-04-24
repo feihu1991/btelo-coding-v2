@@ -1,7 +1,10 @@
 package com.btelo.coding.data.remote.websocket
 
+import com.btelo.coding.util.AppException
+import com.btelo.coding.util.Logger
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.google.gson.JsonSyntaxException
 
 sealed class BteloMessage {
     data class Command(val content: String, val type: InputType) : BteloMessage()
@@ -19,6 +22,7 @@ enum class StreamType {
 }
 
 class MessageProtocol(private val gson: Gson) {
+    private val tag = "MessageProtocol"
 
     fun serialize(message: BteloMessage): String {
         val json = JsonObject()
@@ -46,23 +50,50 @@ class MessageProtocol(private val gson: Gson) {
     }
 
     fun deserialize(json: String): BteloMessage? {
-        val jsonObject = gson.fromJson(json, JsonObject::class.java)
-        return when (jsonObject.get("type")?.asString) {
-            "command" -> BteloMessage.Command(
-                content = jsonObject.get("content").asString,
-                type = InputType.valueOf(jsonObject.get("inputType").asString.uppercase())
-            )
-            "output" -> BteloMessage.Output(
-                data = jsonObject.get("data").asString,
-                stream = StreamType.valueOf(jsonObject.get("stream").asString.uppercase())
-            )
-            "status" -> BteloMessage.Status(
-                connected = jsonObject.get("connected").asBoolean
-            )
-            "publicKey" -> BteloMessage.PublicKey(
-                key = jsonObject.get("key").asString
-            )
-            else -> null
+        return try {
+            val jsonObject = gson.fromJson(json, JsonObject::class.java)
+            deserializeInternal(jsonObject)
+        } catch (e: JsonSyntaxException) {
+            Logger.e(tag, "JSON解析异常: $json", e)
+            null
+        } catch (e: Exception) {
+            Logger.e(tag, "反序列化消息失败: $json", e)
+            null
+        }
+    }
+
+    private fun deserializeInternal(jsonObject: JsonObject): BteloMessage? {
+        return try {
+            when (jsonObject.get("type")?.asString) {
+                "command" -> BteloMessage.Command(
+                    content = jsonObject.get("content")?.asString ?: "",
+                    type = InputType.valueOf(
+                        jsonObject.get("inputType")?.asString?.uppercase() ?: "TEXT"
+                    )
+                )
+                "output" -> BteloMessage.Output(
+                    data = jsonObject.get("data")?.asString ?: "",
+                    stream = StreamType.valueOf(
+                        jsonObject.get("stream")?.asString?.uppercase() ?: "STDOUT"
+                    )
+                )
+                "status" -> BteloMessage.Status(
+                    connected = jsonObject.get("connected")?.asBoolean ?: false
+                )
+                "publicKey" -> BteloMessage.PublicKey(
+                    key = jsonObject.get("key")?.asString ?: ""
+                )
+                else -> {
+                    Logger.w(tag, "未知的消息类型: ${jsonObject.get("type")?.asString}")
+                    null
+                }
+            }
+        } catch (e: IllegalArgumentException) {
+            Logger.e(tag, "消息类型解析失败", e)
+            null
+        } catch (e: Exception) {
+            Logger.e(tag, "消息字段解析失败", e)
+            null
         }
     }
 }
