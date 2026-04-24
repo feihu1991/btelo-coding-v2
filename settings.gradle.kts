@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "BTELO-Coding"
+rootProject.name = "Yami-Coding"
 include(":app")
