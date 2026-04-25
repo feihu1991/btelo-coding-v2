@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.security.SecureRandom
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,6 +28,7 @@ sealed class KeyRotationState {
 
 /**
  * 密钥版本信息
+ * 注意：私钥使用后应及时清零以减少内存暴露风险
  */
 data class KeyVersion(
     val version: Int,
@@ -49,6 +51,14 @@ data class KeyVersion(
         result = 31 * result + publicKey.contentHashCode()
         result = 31 * result + privateKey.contentHashCode()
         return result
+    }
+
+    /**
+     * 安全清零私钥字节数组
+     * 在密钥不再需要时调用以减少内存暴露风险
+     */
+    fun clearPrivateKey() {
+        privateKey.fill(0)
     }
 }
 
@@ -97,11 +107,11 @@ class KeyRotationManager @Inject constructor(
     private val _rotationState = MutableStateFlow<KeyRotationState>(KeyRotationState.Idle)
     val rotationState: StateFlow<KeyRotationState> = _rotationState.asStateFlow()
     
-    // 当前会话的密钥版本映射
-    private val sessionKeyVersions = mutableMapOf<String, MutableList<KeyVersion>>()
-    
-    // 当前活跃密钥版本
-    private val currentVersions = mutableMapOf<String, KeyVersion>()
+    // 当前会话的密钥版本映射（线程安全）
+    private val sessionKeyVersions = ConcurrentHashMap<String, MutableList<KeyVersion>>()
+
+    // 当前活跃密钥版本（线程安全）
+    private val currentVersions = ConcurrentHashMap<String, KeyVersion>()
     
     /**
      * 初始化会话的密钥版本管理
@@ -137,10 +147,8 @@ class KeyRotationManager @Inject constructor(
             isActive = true
         )
         
-        // 保存到内存
-        if (!sessionKeyVersions.containsKey(sessionId)) {
-            sessionKeyVersions[sessionId] = mutableListOf()
-        }
+        // 保存到内存（线程安全）
+        sessionKeyVersions.putIfAbsent(sessionId, mutableListOf())
         sessionKeyVersions[sessionId]?.add(0, keyVersion)
         currentVersions[sessionId] = keyVersion
         
@@ -376,6 +384,8 @@ class KeyRotationManager @Inject constructor(
         val versions = sessionKeyVersions[sessionId] ?: return
         if (versions.size > MAX_KEY_HISTORY) {
             val toRemove = versions.drop(MAX_KEY_HISTORY)
+            // 安全清零被删除的私钥
+            toRemove.forEach { it.clearPrivateKey() }
             sessionKeyVersions[sessionId] = versions.take(MAX_KEY_HISTORY).toMutableList()
             saveKeyVersions(sessionId)
             Logger.i(tag, "清理了 ${toRemove.size} 个过期密钥版本")

@@ -11,10 +11,13 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SessionDao {
-    
+
     @Query("SELECT * FROM sessions ORDER BY lastActiveAt DESC")
     fun getAllSessions(): Flow<List<SessionEntity>>
-    
+
+    @Query("SELECT COUNT(*) FROM sessions")
+    suspend fun getSessionCount(): Int
+
     @Query("SELECT * FROM sessions WHERE id = :sessionId")
     fun getSessionById(sessionId: String): Flow<SessionEntity?>
     

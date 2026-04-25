@@ -26,15 +26,9 @@ class SessionRepositoryImpl @Inject constructor(
     }
 
     override suspend fun createSession(tool: String): Session {
-        val sessionCount = sessionDao.getAllSessions().let { flow ->
-            // 获取当前会话数量用于命名
-            var count = 0
-            flow.collect { sessions ->
-                count = sessions.size
-            }
-            count
-        }
-        
+        // 使用高效的计数查询获取当前会话数量
+        val sessionCount = sessionDao.getSessionCount()
+
         val session = Session(
             id = java.util.UUID.randomUUID().toString(),
             name = "会话 ${sessionCount + 1}",
@@ -43,10 +37,10 @@ class SessionRepositoryImpl @Inject constructor(
             lastActiveAt = System.currentTimeMillis(),
             isConnected = false
         )
-        
+
         sessionDao.insertSession(session.toEntity())
         Logger.i(tag, "创建会话: ${session.id}")
-        
+
         return session
     }
 

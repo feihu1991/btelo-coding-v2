@@ -73,10 +73,6 @@ class CryptoManager {
         return SecretKeySpec(keyBytes, "ChaCha20")
     }
 
-    fun createCipherFromSharedSecret(sharedSecret: ByteArray): ChaCha20Poly1305 {
-        val keyBytes = sharedSecret.take(32).toByteArray()
-        return ChaCha20Poly1305(keyBytes)
-    }
 
     fun encrypt(plaintext: ByteArray, cipher: ChaCha20Poly1305, associatedData: ByteArray = ByteArray(0)): ByteArray {
         return cipher.encrypt(plaintext, associatedData)

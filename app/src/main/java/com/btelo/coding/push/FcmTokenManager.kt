@@ -2,6 +2,7 @@ package com.btelo.coding.push
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.WorkerThread
 import com.google.firebase.messaging.FirebaseMessaging
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
@@ -36,7 +37,9 @@ class FcmTokenManager @Inject constructor(
 
     /**
      * Get token synchronously (blocking call, avoid on main thread)
+     * 警告：此方法是阻塞调用，不要在主线程调用
      */
+    @WorkerThread
     fun getTokenSync(): String? {
         return try {
             // Use Tasks.await for synchronous access

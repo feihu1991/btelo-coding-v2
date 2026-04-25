@@ -53,20 +53,14 @@ class DataStoreManager @Inject constructor(
     }
     
     // ========== Token (Encrypted) ==========
-    
-    val token: Flow<String?> = object : Flow<String?> {
-        override suspend fun collect(collector: kotlinx.coroutines.flow.FlowCollector<String?>) {
-            // Direct read for synchronous access
-        }
-    }
-    
+
     /**
      * Get token synchronously (for immediate use)
      */
     fun getTokenSync(): String? {
         return encryptedPrefs.getString(KEY_TOKEN, null)
     }
-    
+
     /**
      * Get token flow
      */

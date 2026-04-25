@@ -16,6 +16,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.inject.Qualifier
+
+/**
+ * 应用级别的 CoroutineScope Qualifier
+ */
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class ApplicationScope
 
 /**
  * 消息同步状态
@@ -46,6 +54,7 @@ data class SyncProgress(
  */
 @Singleton
 class SyncManager @Inject constructor(
+    @ApplicationScope private val scope: CoroutineScope,
     private val syncApi: SyncApi,
     private val messageDao: MessageDao,
     private val dataStoreManager: DataStoreManager,
@@ -83,7 +92,7 @@ class SyncManager @Inject constructor(
         _lastSyncTime.value = dataStoreManager.getLastSyncTimestamp()
         
         // 监听网络状态
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch {
             networkMonitor.isOnline.collect { isOnline ->
                 if (isOnline && dataStoreManager.isAutoSyncEnabled()) {
                     startPeriodicSync()
@@ -104,8 +113,8 @@ class SyncManager @Inject constructor(
      */
     fun startPeriodicSync() {
         if (periodicSyncJob?.isActive == true) return
-        
-        periodicSyncJob = CoroutineScope(Dispatchers.IO).launch {
+
+        periodicSyncJob = scope.launch {
             while (isActive && dataStoreManager.isAutoSyncEnabled()) {
                 if (networkMonitor.isOnline.value) {
                     syncAllSessions()
@@ -113,7 +122,7 @@ class SyncManager @Inject constructor(
                 delay(60_000) // 每分钟检查一次
             }
         }
-        
+
         Logger.i(TAG, "Periodic sync started")
     }
     

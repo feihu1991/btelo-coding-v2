@@ -16,6 +16,7 @@ import com.btelo.coding.data.remote.encryption.SecureKeyStore
 import com.btelo.coding.data.remote.network.NetworkMonitor
 import com.btelo.coding.data.remote.websocket.factory.WebSocketClientFactory
 import com.btelo.coding.data.repository.AuthRepositoryImpl
+import com.btelo.coding.data.sync.ApplicationScope
 import com.btelo.coding.data.repository.DeviceRepositoryImpl
 import com.btelo.coding.data.repository.MessageRepositoryImpl
 import com.btelo.coding.data.repository.SessionRepositoryImpl
@@ -33,6 +34,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -51,6 +55,13 @@ object AppModule {
     @Provides
     @Singleton
     fun provideGson(): Gson = Gson()
+
+    @Provides
+    @Singleton
+    @ApplicationScope
+    fun provideApplicationScope(): CoroutineScope {
+        return CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
 
     @Provides
     @Singleton
