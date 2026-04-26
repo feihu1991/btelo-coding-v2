@@ -1,6 +1,11 @@
 package com.btelo.coding.ui.chat
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +44,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -54,6 +60,7 @@ object ConnectionColors {
     val Disconnected = Color(0xFF9E9E9E)   // 灰色
     val Error = Color(0xFFF44336)          // 红色
     val Reconnecting = Color(0xFFFF9800)  // 橙色
+    val VoiceActive = Color(0xFFE91E63)    // 粉色（语音活跃）
 }
 
 @Composable
@@ -104,6 +111,36 @@ fun ConnectionStatusIndicator(
     }
 }
 
+/**
+ * 语音录音状态指示器（带动画效果）
+ */
+@Composable
+fun VoiceListeningIndicator(
+    isListening: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (!isListening) return
+
+    val infiniteTransition = rememberInfiniteTransition(label = "voicePulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+
+    Box(
+        modifier = modifier
+            .size(12.dp)
+            .scale(scale)
+            .clip(CircleShape)
+            .background(ConnectionColors.VoiceActive)
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -118,6 +155,14 @@ fun ChatScreen(
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { error ->
             snackbarHostState.showSnackbar("连接错误: $error")
+        }
+    }
+
+    // 显示语音错误消息
+    LaunchedEffect(uiState.voiceError) {
+        uiState.voiceError?.let { error ->
+            snackbarHostState.showSnackbar("语音错误: $error")
+            viewModel.clearVoiceError()
         }
     }
 
@@ -142,6 +187,19 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    // 语音录音指示器
+                    if (uiState.isVoiceListening) {
+                        VoiceListeningIndicator(
+                            isListening = true,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Text(
+                            text = "录音中...",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ConnectionColors.VoiceActive,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
                     // 连接状态指示器
                     ConnectionStatusIndicator(
                         connectionState = uiState.connectionState,
@@ -170,13 +228,66 @@ fun ChatScreen(
                 modifier = Modifier.weight(1f)
             )
 
+            // 语音录音提示（录音中时显示）
+            if (uiState.isVoiceListening) {
+                VoiceRecordingHint()
+            }
+
             InputBar(
                 text = uiState.inputText,
                 onTextChange = viewModel::updateInputText,
                 onSend = viewModel::sendMessage,
-                onVoiceClick = { /* TODO: Implement voice input */ },
+                onVoiceClick = viewModel::onVoiceClick, // 真正的语音功能
                 onAttachClick = { /* TODO: Implement file attachment */ },
+                isVoiceListening = uiState.isVoiceListening, // 传递录音状态
                 modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+/**
+ * 语音录音提示
+ */
+@Composable
+fun VoiceRecordingHint() {
+    val infiniteTransition = rememberInfiniteTransition(label = "recordingHint")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = ConnectionColors.VoiceActive.copy(alpha = 0.1f * alpha)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(ConnectionColors.VoiceActive)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "正在聆听，请说话...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = ConnectionColors.VoiceActive
             )
         }
     }

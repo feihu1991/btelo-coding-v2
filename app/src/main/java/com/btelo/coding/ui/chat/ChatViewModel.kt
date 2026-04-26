@@ -7,6 +7,8 @@ import com.btelo.coding.domain.model.Message
 import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.domain.repository.SessionRepository
+import com.btelo.coding.domain.voice.VoiceInputManager
+import com.btelo.coding.domain.voice.VoiceInputState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,14 +28,17 @@ data class ChatUiState(
     val lastConnectedTime: Long? = null,
     val errorMessage: String? = null,
     val error: String? = null,
-    val showConnectionDetails: Boolean = false
+    val showConnectionDetails: Boolean = false,
+    val isVoiceListening: Boolean = false,
+    val voiceError: String? = null
 )
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
     private val sessionRepository: SessionRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val voiceInputManager: VoiceInputManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -43,6 +48,57 @@ class ChatViewModel @Inject constructor(
     
     // Store coroutine jobs for proper cancellation
     private val coroutineJobs = mutableListOf<Job>()
+
+    init {
+        // 观察语音输入状态
+        observeVoiceInputState()
+    }
+
+    private fun observeVoiceInputState() {
+        val job = viewModelScope.launch {
+            voiceInputManager.state.collect { state ->
+                when (state) {
+                    is VoiceInputState.Idle -> {
+                        _uiState.value = _uiState.value.copy(
+                            isVoiceListening = false,
+                            voiceError = null
+                        )
+                    }
+                    is VoiceInputState.Listening -> {
+                        _uiState.value = _uiState.value.copy(
+                            isVoiceListening = true,
+                            voiceError = null
+                        )
+                    }
+                    is VoiceInputState.Processing -> {
+                        _uiState.value = _uiState.value.copy(
+                            isVoiceListening = true,
+                            voiceError = null
+                        )
+                    }
+                    is VoiceInputState.Result -> {
+                        // 语音识别成功，将结果填入输入框
+                        _uiState.value = _uiState.value.copy(
+                            isVoiceListening = false,
+                            inputText = state.text,
+                            voiceError = null
+                        )
+                        // 发送语音命令
+                        sendMessage()
+                        // 重置状态
+                        voiceInputManager.resetState()
+                    }
+                    is VoiceInputState.Error -> {
+                        _uiState.value = _uiState.value.copy(
+                            isVoiceListening = false,
+                            voiceError = state.message
+                        )
+                    }
+                }
+            }
+        }
+        coroutineJobs.add(job)
+    }
 
     fun setSessionId(id: String) {
         sessionId = id
@@ -131,6 +187,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 语音按钮点击事件
+     * 如果正在录音则停止，否则开始录音
+     */
+    fun onVoiceClick() {
+        if (_uiState.value.isVoiceListening) {
+            voiceInputManager.stopListening()
+        } else {
+            // 检查语音识别是否可用
+            if (!voiceInputManager.isSpeechRecognitionAvailable()) {
+                _uiState.value = _uiState.value.copy(
+                    voiceError = "设备不支持语音识别"
+                )
+                return
+            }
+            voiceInputManager.startListening()
+        }
+    }
+
+    /**
+     * 清除语音错误消息
+     */
+    fun clearVoiceError() {
+        _uiState.value = _uiState.value.copy(voiceError = null)
+        voiceInputManager.resetState()
+    }
+
     fun toggleConnectionDetails() {
         _uiState.value = _uiState.value.copy(
             showConnectionDetails = !_uiState.value.showConnectionDetails
@@ -143,6 +226,8 @@ class ChatViewModel @Inject constructor(
     
     override fun onCleared() {
         super.onCleared()
+        // 销毁语音识别器
+        voiceInputManager.destroy()
         // Cancel all coroutine jobs to prevent memory leaks
         coroutineJobs.forEach { job ->
             if (job.isActive) {
