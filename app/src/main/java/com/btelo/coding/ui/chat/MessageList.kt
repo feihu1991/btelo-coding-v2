@@ -11,13 +11,17 @@ import com.btelo.coding.domain.model.Message
 @Composable
 fun MessageList(
     messages: List<Message>,
+    streamingContent: String = "",
+    isStreaming: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(messages.size, isStreaming, streamingContent) {
+        if (messages.isNotEmpty() || isStreaming) {
+            listState.animateScrollToItem(
+                if (isStreaming) messages.size else messages.size - 1
+            )
         }
     }
 
@@ -27,6 +31,12 @@ fun MessageList(
     ) {
         items(messages) { message ->
             MessageBubble(message = message)
+        }
+
+        if (isStreaming && streamingContent.isNotBlank()) {
+            item {
+                AiStreamingBubble(partialContent = streamingContent)
+            }
         }
     }
 }

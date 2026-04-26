@@ -23,6 +23,7 @@ data class DeviceRegisterApiResponse(
     val success: Boolean,
     val device_id: String,
     val pairing_code: String?,
+    val token: String? = null,
     val message: String
 )
 
@@ -30,6 +31,19 @@ data class PairingCodeApiResponse(
     val device_id: String,
     val pairing_code: String,
     val expires_at: String? = null
+)
+
+data class DeviceStatusApiResponse(
+    val device_id: String,
+    val paired: Boolean,
+    val session_id: String?,
+    val terminal_connected: Boolean = false
+)
+
+data class RegisterRequest(
+    val username: String,
+    val password: String,
+    val name: String
 )
 
 class AuthApi(
@@ -56,6 +70,40 @@ class AuthApi(
                     Result.success(loginResponse)
                 } else {
                     Result.failure(Exception("Login failed: ${response.code}"))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun register(
+        serverAddress: String,
+        username: String,
+        password: String,
+        name: String
+    ): Result<LoginResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val requestBody = RegisterRequest(
+                    username = username,
+                    password = password,
+                    name = name
+                )
+                val json = gson.toJson(requestBody)
+                val request = Request.Builder()
+                    .url("$serverAddress/api/auth/register")
+                    .post(json.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = okHttpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: ""
+                    val registerResponse = gson.fromJson(body, LoginResponse::class.java)
+                    Result.success(registerResponse)
+                } else {
+                    val errorBody = response.body?.string() ?: ""
+                    Result.failure(Exception("注册失败: ${response.code} $errorBody"))
                 }
             } catch (e: Exception) {
                 Result.failure(e)
@@ -112,6 +160,31 @@ class AuthApi(
                     Result.success(pairingResponse)
                 } else {
                     Result.failure(Exception("Failed to get pairing code: ${response.code}"))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun getDeviceStatus(
+        serverAddress: String,
+        deviceId: String
+    ): Result<DeviceStatusApiResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url("$serverAddress/device/$deviceId/status")
+                    .get()
+                    .build()
+
+                val response = okHttpClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string() ?: ""
+                    val statusResponse = gson.fromJson(body, DeviceStatusApiResponse::class.java)
+                    Result.success(statusResponse)
+                } else {
+                    Result.failure(Exception("Failed to get device status: ${response.code}"))
                 }
             } catch (e: Exception) {
                 Result.failure(e)

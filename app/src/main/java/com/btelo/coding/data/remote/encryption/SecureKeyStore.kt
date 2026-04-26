@@ -158,37 +158,26 @@ class SecureKeyStore @Inject constructor(
     
     /**
      * 获取或创建 AES 密钥（用于加密私钥）
+     * 使用软件生成密钥而非 Android Keystore，避免硬件密钥不支持 caller-provided IV 的问题
      */
     private fun getOrCreateAesKey(): SecretKey {
-        return try {
-            keyStore.getKey(AES_KEY_ALIAS, null) as? SecretKey
-        } catch (e: java.security.KeyStoreException) {
-            null
-        } ?: createAesKey()
-    }
-    
-    /**
-     * 创建 AES 密钥
-     */
-    private fun createAesKey(): SecretKey {
-        val keyGenerator = KeyGenerator.getInstance(
-            KeyProperties.KEY_ALGORITHM_AES,
-            ANDROID_KEYSTORE
-        )
-        
-        val keySpec = KeyGenParameterSpec.Builder(
-            AES_KEY_ALIAS,
-            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-        )
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            .setKeySize(256)
-            .setUserAuthenticationRequired(false) // 简化处理，无需用户认证
-            .build()
-        
-        keyGenerator.init(keySpec)
-        
-        return keyGenerator.generateKey()
+        val prefs = context.getSharedPreferences("secure_keys", Context.MODE_PRIVATE)
+        val existingKeyBase64 = prefs.getString(AES_KEY_ALIAS, null)
+        if (existingKeyBase64 != null) {
+            val keyBytes = Base64.decode(existingKeyBase64, Base64.NO_WRAP)
+            return SecretKeySpec(keyBytes, "AES")
+        }
+
+        // 生成新的软件 AES 密钥
+        val keyGenerator = KeyGenerator.getInstance("AES")
+        keyGenerator.init(256)
+        val newKey = keyGenerator.generateKey()
+
+        prefs.edit()
+            .putString(AES_KEY_ALIAS, Base64.encodeToString(newKey.encoded, Base64.NO_WRAP))
+            .apply()
+
+        return newKey
     }
     
     /**

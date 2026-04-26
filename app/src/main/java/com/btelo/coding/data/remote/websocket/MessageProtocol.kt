@@ -24,7 +24,26 @@ sealed class BteloMessage {
         val stream: StreamType,
         val keyVersion: Int  // 用于标识使用哪个密钥版本解密
     ) : BteloMessage()
+    // 会话同步消息
+    data class SyncHistory(
+        val sessionId: String,
+        val messages: List<HistoryMessage>
+    ) : BteloMessage()
+    data class NewMessage(
+        val sessionId: String,
+        val message: HistoryMessage
+    ) : BteloMessage()
+    data class SelectSession(
+        val sessionId: String
+    ) : BteloMessage()
 }
+
+data class HistoryMessage(
+    val id: String,
+    val content: String,
+    val isFromUser: Boolean,
+    val timestamp: Long
+)
 
 enum class InputType {
     TEXT, VOICE, IMAGE
@@ -70,6 +89,20 @@ class MessageProtocol(private val gson: Gson) {
                 json.addProperty("data", message.data)
                 json.addProperty("stream", message.stream.name)
                 json.addProperty("keyVersion", message.keyVersion)
+            }
+            is BteloMessage.SyncHistory -> {
+                json.addProperty("type", "sync_history")
+                json.addProperty("session_id", message.sessionId)
+                json.add("messages", gson.toJsonTree(message.messages))
+            }
+            is BteloMessage.NewMessage -> {
+                json.addProperty("type", "new_message")
+                json.addProperty("session_id", message.sessionId)
+                json.add("message", gson.toJsonTree(message.message))
+            }
+            is BteloMessage.SelectSession -> {
+                json.addProperty("type", "select_session")
+                json.addProperty("session_id", message.sessionId)
             }
         }
         return gson.toJson(json)
@@ -121,6 +154,42 @@ class MessageProtocol(private val gson: Gson) {
                         jsonObject.get("stream")?.asString?.uppercase() ?: "STDOUT"
                     ),
                     keyVersion = jsonObject.get("keyVersion")?.asInt ?: 0
+                )
+                "sync_history" -> {
+                    val messagesArray = jsonObject.getAsJsonArray("messages")
+                    val messages = messagesArray?.map { element ->
+                        val obj = element.asJsonObject
+                        HistoryMessage(
+                            id = obj.get("id")?.asString ?: "",
+                            content = obj.get("content")?.asString ?: "",
+                            isFromUser = obj.get("isFromUser")?.asBoolean ?: false,
+                            timestamp = obj.get("timestamp")?.asLong ?: 0L
+                        )
+                    } ?: emptyList()
+                    BteloMessage.SyncHistory(
+                        sessionId = jsonObject.get("session_id")?.asString ?: "",
+                        messages = messages
+                    )
+                }
+                "new_message" -> {
+                    val msgObj = jsonObject.getAsJsonObject("message")
+                    val historyMsg = if (msgObj != null) {
+                        HistoryMessage(
+                            id = msgObj.get("id")?.asString ?: "",
+                            content = msgObj.get("content")?.asString ?: "",
+                            isFromUser = msgObj.get("isFromUser")?.asBoolean ?: false,
+                            timestamp = msgObj.get("timestamp")?.asLong ?: 0L
+                        )
+                    } else {
+                        HistoryMessage("", "", false, 0L)
+                    }
+                    BteloMessage.NewMessage(
+                        sessionId = jsonObject.get("session_id")?.asString ?: "",
+                        message = historyMsg
+                    )
+                }
+                "select_session" -> BteloMessage.SelectSession(
+                    sessionId = jsonObject.get("session_id")?.asString ?: ""
                 )
                 else -> {
                     Logger.w(tag, "未知的消息类型: ${jsonObject.get("type")?.asString}")

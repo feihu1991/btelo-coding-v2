@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 interface MessageRepository {
     fun connect(serverAddress: String, token: String, sessionId: String)
     fun getMessages(sessionId: String): Flow<List<Message>>
+    suspend fun getLastMessage(sessionId: String): Message?
     suspend fun sendMessage(sessionId: String, content: String): Result<Unit>
     fun observeOutput(sessionId: String): Flow<Message>
     fun disconnect(sessionId: String)

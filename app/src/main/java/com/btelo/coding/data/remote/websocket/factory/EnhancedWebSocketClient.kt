@@ -51,7 +51,6 @@ class EnhancedWebSocketClient(
     private var webSocket: WebSocket? = null
     private var config: WebSocketConfig? = null
     private var reconnectJob: Job? = null
-    private var pingJob: Job? = null
     private var keyRotationCheckJob: Job? = null
     
     private var keyPair: KeyPair? = null
@@ -100,17 +99,18 @@ class EnhancedWebSocketClient(
     
     private fun startConnection() {
         val config = config ?: return
-        
+
         _connectionState.value = ConnectionState.Connecting
         Logger.i(tag, "正在连接: ${config.sessionId}")
-        
+
         val wsUrl = config.serverAddress
             .replace("http://", "ws://")
-            .replace("https://", "wss://") + "/ws"
-        
+            .replace("https://", "wss://") + "/ws?token=${config.token}"
+
+        Logger.i(tag, "WebSocket URL: $wsUrl")
+
         val request = Request.Builder()
             .url(wsUrl)
-            .addHeader("Authorization", "Bearer ${config.token}")
             .build()
         
         // 尝试使用SecureKeyStore获取或生成密钥对
@@ -123,16 +123,11 @@ class EnhancedWebSocketClient(
                 Logger.i(tag, "WebSocket连接成功")
                 reconnectAttempt = 0
                 _connectionState.value = ConnectionState.Connected
-                
-                // 发送公钥
-                val publicKeyBase64 = android.util.Base64.encodeToString(
-                    keyPair!!.publicKey, android.util.Base64.NO_WRAP
-                )
-                webSocket.send(protocol.serialize(BteloMessage.PublicKey(publicKeyBase64)))
-                
-                // 启动心跳
-                startPingPong(config.pingIntervalMs)
-                
+
+                // E2E encryption disabled - server doesn't support real key exchange yet
+                // All messages are sent as plaintext
+                isEncrypted = false
+
                 scope.launch {
                     _events.emit(WebSocketEvent.Connected(config.sessionId))
                 }
@@ -157,12 +152,11 @@ class EnhancedWebSocketClient(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Logger.i(tag, "WebSocket关闭: code=$code, reason=$reason")
                 _connectionState.value = ConnectionState.Disconnected
-                stopPingPong()
-                
+
                 scope.launch {
                     _events.emit(WebSocketEvent.Disconnected(config.sessionId, reason))
                 }
-                
+
                 // 非正常关闭时尝试重连
                 if (code != 1000) {
                     scheduleReconnect()
@@ -215,6 +209,9 @@ class EnhancedWebSocketClient(
             }
             is BteloMessage.Command -> _messages.tryEmit(message)
             is BteloMessage.Status -> _messages.tryEmit(message)
+            is BteloMessage.SyncHistory -> _messages.tryEmit(message)
+            is BteloMessage.NewMessage -> _messages.tryEmit(message)
+            is BteloMessage.SelectSession -> _messages.tryEmit(message)
             is BteloMessage.KeyRotation -> {
                 handleKeyRotationMessage(message)
             }
@@ -386,20 +383,6 @@ class EnhancedWebSocketClient(
         }
     }
     
-    private fun startPingPong(intervalMs: Long) {
-        pingJob = scope.launch {
-            while (true) {
-                delay(intervalMs)
-                webSocket?.send(protocol.serialize(BteloMessage.Command("ping", com.btelo.coding.data.remote.websocket.InputType.TEXT)))
-            }
-        }
-    }
-    
-    private fun stopPingPong() {
-        pingJob?.cancel()
-        pingJob = null
-    }
-    
     fun send(message: BteloMessage): Boolean {
         val messageToSend = if (isEncrypted && cipher != null && message is BteloMessage.Command) {
             try {
@@ -424,7 +407,6 @@ class EnhancedWebSocketClient(
     
     fun disconnect(): Boolean {
         reconnectJob?.cancel()
-        stopPingPong()
         keyRotationCheckJob?.cancel()
         webSocket?.close(1000, "User disconnected")
         webSocket = null

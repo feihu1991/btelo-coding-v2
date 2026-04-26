@@ -41,4 +41,7 @@ interface SessionDao {
     
     @Query("UPDATE sessions SET lastActiveAt = :timestamp WHERE id = :sessionId")
     suspend fun updateLastActiveTime(sessionId: String, timestamp: Long)
+
+    @Query("SELECT * FROM sessions WHERE name LIKE '%' || :query || '%' OR tool LIKE '%' || :query || '%' ORDER BY lastActiveAt DESC")
+    fun searchSessions(query: String): Flow<List<SessionEntity>>
 }

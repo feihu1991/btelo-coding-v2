@@ -4,6 +4,7 @@ import com.btelo.coding.data.local.EntityMappers.toDomain
 import com.btelo.coding.data.local.EntityMappers.toEntity
 import com.btelo.coding.data.local.EntityMappers.toMessageList
 import com.btelo.coding.data.local.dao.MessageDao
+import com.btelo.coding.data.local.entity.MessageEntity
 import com.btelo.coding.data.remote.websocket.BteloMessage
 import com.btelo.coding.data.remote.websocket.InputType
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
@@ -17,6 +18,7 @@ import com.btelo.coding.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,7 +38,7 @@ class MessageRepositoryImpl @Inject constructor(
 ) : MessageRepository {
     
     private val tag = "MessageRepository"
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
     // 当前连接的会话ID
     private val _currentSessionId = MutableStateFlow<String?>(null)
@@ -77,19 +79,50 @@ class MessageRepositoryImpl @Inject constructor(
         // 监听消息并持久化
         scope.launch {
             client.messages.collect { message ->
-                if (message is BteloMessage.Output) {
-                    val domainMessage = Message(
-                        id = java.util.UUID.randomUUID().toString(),
-                        sessionId = sessionId,
-                        content = message.data,
-                        type = when (message.stream) {
-                            com.btelo.coding.data.remote.websocket.StreamType.STDERR -> MessageType.ERROR
-                            else -> MessageType.OUTPUT
-                        },
-                        timestamp = System.currentTimeMillis(),
-                        isFromUser = false
-                    )
-                    messageDao.insertMessage(domainMessage.toEntity())
+                when (message) {
+                    is BteloMessage.Output -> {
+                        val domainMessage = Message(
+                            id = java.util.UUID.randomUUID().toString(),
+                            sessionId = sessionId,
+                            content = message.data,
+                            type = when (message.stream) {
+                                com.btelo.coding.data.remote.websocket.StreamType.STDERR -> MessageType.ERROR
+                                else -> MessageType.OUTPUT
+                            },
+                            timestamp = System.currentTimeMillis(),
+                            isFromUser = false
+                        )
+                        messageDao.insertMessage(domainMessage.toEntity())
+                    }
+                    is BteloMessage.SyncHistory -> {
+                        // Bulk insert history from Claude Code session
+                        Logger.i(tag, "收到历史同步: ${message.messages.size} 条消息")
+                        val entities = message.messages.map { hm ->
+                            MessageEntity(
+                                id = hm.id,
+                                sessionId = message.sessionId,
+                                content = hm.content,
+                                type = if (hm.isFromUser) "COMMAND" else "OUTPUT",
+                                timestamp = hm.timestamp,
+                                isFromUser = hm.isFromUser
+                            )
+                        }
+                        messageDao.insertMessages(entities)
+                    }
+                    is BteloMessage.NewMessage -> {
+                        // Real-time new message from JSONL file watcher
+                        Logger.i(tag, "收到新消息同步: ${message.message.content.take(50)}")
+                        val entity = MessageEntity(
+                            id = message.message.id,
+                            sessionId = message.sessionId,
+                            content = message.message.content,
+                            type = if (message.message.isFromUser) "COMMAND" else "OUTPUT",
+                            timestamp = message.message.timestamp,
+                            isFromUser = message.message.isFromUser
+                        )
+                        messageDao.insertMessage(entity)
+                    }
+                    else -> { /* ignore other message types */ }
                 }
             }
         }
@@ -101,6 +134,10 @@ class MessageRepositoryImpl @Inject constructor(
         return messageDao.getMessagesBySessionId(sessionId).map { entities ->
             entities.toMessageList()
         }
+    }
+
+    override suspend fun getLastMessage(sessionId: String): Message? {
+        return messageDao.getLastMessage(sessionId)?.toDomain()
     }
 
     override suspend fun sendMessage(sessionId: String, content: String): Result<Unit> {
@@ -130,13 +167,36 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override fun observeOutput(sessionId: String): Flow<Message> {
+        // Track the last seen message count to only emit new messages
+        var lastCount = 0
         return messageDao.getMessagesBySessionId(sessionId).map { entities ->
-            entities.lastOrNull()?.toDomain()
+            val domainList = entities.toMessageList()
+            if (domainList.size > lastCount) {
+                // Only return the new messages since last emission
+                val newMessages = domainList.subList(lastCount, domainList.size)
+                lastCount = domainList.size
+                // Combine new output messages into one
+                val combined = newMessages
+                    .filter { !it.isFromUser }
+                    .joinToString("") { it.content }
+                if (combined.isNotEmpty()) {
+                    Message(
+                        id = "stream",
+                        sessionId = sessionId,
+                        content = combined,
+                        type = com.btelo.coding.domain.model.MessageType.OUTPUT,
+                        timestamp = System.currentTimeMillis(),
+                        isFromUser = false
+                    )
+                } else null
+            } else null
         }.mapNotNull { it }
     }
     
     override fun disconnect(sessionId: String) {
         webSocketFactory.destroy(sessionId)
+        scope.cancel()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         _currentSessionId.value = null
         _connectionState.value = ConnectionState.Disconnected
         Logger.i(tag, "断开会话: $sessionId")

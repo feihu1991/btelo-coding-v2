@@ -3,6 +3,7 @@ package com.btelo.coding.data.repository
 import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.data.remote.api.AuthApi
 import com.btelo.coding.domain.model.DeviceRegisterResponse
+import com.btelo.coding.domain.model.DeviceStatusResponse
 import com.btelo.coding.domain.model.PairingCodeResponse
 import com.btelo.coding.domain.model.User
 import com.btelo.coding.domain.repository.AuthRepository
@@ -25,6 +26,27 @@ class AuthRepositoryImpl @Inject constructor(
     ): Result<User> {
         return authApi.login(serverAddress, username, password).map { response ->
             // Save token using encrypted storage
+            dataStoreManager.saveAuth(
+                token = response.token,
+                userId = response.userId,
+                username = response.username,
+                serverAddress = serverAddress
+            )
+            User(
+                id = response.userId,
+                username = response.username,
+                token = response.token
+            )
+        }
+    }
+
+    override suspend fun register(
+        serverAddress: String,
+        username: String,
+        password: String,
+        name: String
+    ): Result<User> {
+        return authApi.register(serverAddress, username, password, name).map { response ->
             dataStoreManager.saveAuth(
                 token = response.token,
                 userId = response.userId,
@@ -75,6 +97,14 @@ class AuthRepositoryImpl @Inject constructor(
         return dataStoreManager.getTokenFlow()
     }
 
+    override fun getTokenSync(): String? {
+        return dataStoreManager.getTokenSync()
+    }
+
+    override fun getWsTokenSync(): String? {
+        return dataStoreManager.getWsTokenSync()
+    }
+
     // ========== Device Pairing Methods ==========
 
     override suspend fun registerDevice(
@@ -86,9 +116,16 @@ class AuthRepositoryImpl @Inject constructor(
             if (!response.success) {
                 throw Exception(response.message)
             }
-            // Save device info
+            // Save device info and token
             dataStoreManager.saveServerAddress(serverAddress)
             dataStoreManager.saveDeviceId(response.device_id)
+            if (response.token != null) {
+                try {
+                    dataStoreManager.saveToken(response.token)
+                } catch (e: Exception) {
+                    dataStoreManager.saveTokenFallback(response.token)
+                }
+            }
             DeviceRegisterResponse(
                 deviceId = response.device_id,
                 pairingCode = response.pairing_code ?: ""
@@ -109,11 +146,37 @@ class AuthRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getDeviceStatus(
+        serverAddress: String,
+        deviceId: String
+    ): Result<DeviceStatusResponse> {
+        return authApi.getDeviceStatus(serverAddress, deviceId).map { response ->
+            DeviceStatusResponse(
+                deviceId = response.device_id,
+                paired = response.paired,
+                sessionId = response.session_id,
+                terminalConnected = response.terminal_connected
+            )
+        }
+    }
+
     override suspend fun saveDeviceId(deviceId: String) {
         dataStoreManager.saveDeviceId(deviceId)
     }
 
     override fun getDeviceId(): Flow<String?> {
         return dataStoreManager.deviceId
+    }
+
+    override suspend fun saveSessionId(sessionId: String) {
+        dataStoreManager.saveSessionId(sessionId)
+    }
+
+    override fun getSessionId(): Flow<String?> {
+        return dataStoreManager.sessionId
+    }
+
+    override fun getSessionIdSync(): String? {
+        return dataStoreManager.getSessionIdSync()
     }
 }

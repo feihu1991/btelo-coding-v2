@@ -20,3 +20,11 @@ data class PairingCodeResponse(
     val pairingCode: String,
     val expiresAt: String? = null
 )
+
+// 设备状态响应
+data class DeviceStatusResponse(
+    val deviceId: String,
+    val paired: Boolean,
+    val sessionId: String?,
+    val terminalConnected: Boolean = false
+)

@@ -23,6 +23,9 @@ class DataStoreManager @Inject constructor(
         private const val KEY_USERNAME = "username"
         private const val KEY_USER_ID = "user_id"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_SESSION_ID = "session_id"
+        private const val KEY_WS_TOKEN = "ws_token"
+        private const val KEY_CLAUDE_SESSION_ID = "claude_session_id"
         
         // Sensitive keys (stored in encrypted preferences)
         private const val KEY_TOKEN = "auth_token"
@@ -58,7 +61,11 @@ class DataStoreManager @Inject constructor(
      * Get token synchronously (for immediate use)
      */
     fun getTokenSync(): String? {
-        return encryptedPrefs.getString(KEY_TOKEN, null)
+        return try {
+            encryptedPrefs.getString(KEY_TOKEN, null)
+        } catch (e: Exception) {
+            null
+        } ?: regularPrefs.getString(KEY_TOKEN, null)
     }
 
     /**
@@ -66,12 +73,21 @@ class DataStoreManager @Inject constructor(
      */
     fun getTokenFlow(): Flow<String?> {
         return kotlinx.coroutines.flow.flow {
-            emit(encryptedPrefs.getString(KEY_TOKEN, null))
+            val token = try {
+                encryptedPrefs.getString(KEY_TOKEN, null)
+            } catch (e: Exception) {
+                null
+            } ?: regularPrefs.getString(KEY_TOKEN, null)
+            emit(token)
         }
     }
     
     suspend fun saveToken(token: String) {
         encryptedPrefs.edit().putString(KEY_TOKEN, token).apply()
+    }
+
+    suspend fun saveTokenFallback(token: String) {
+        regularPrefs.edit().putString(KEY_TOKEN, token).apply()
     }
     
     suspend fun clearToken() {
@@ -117,14 +133,72 @@ class DataStoreManager @Inject constructor(
     suspend fun saveDeviceId(deviceId: String) {
         regularPrefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
     }
+
+    // ========== Session ID (server-assigned) ==========
+
+    val sessionId: Flow<String?> = kotlinx.coroutines.flow.flow {
+        emit(regularPrefs.getString(KEY_SESSION_ID, null))
+    }
+
+    fun getSessionIdSync(): String? {
+        return regularPrefs.getString(KEY_SESSION_ID, null)
+    }
+
+    suspend fun saveSessionId(sessionId: String) {
+        regularPrefs.edit().putString(KEY_SESSION_ID, sessionId).apply()
+    }
+
+    suspend fun clearSessionId() {
+        regularPrefs.edit().remove(KEY_SESSION_ID).apply()
+    }
+
+    // ========== Server Address (sync) ==========
+
+    fun getServerAddressSync(): String? {
+        return regularPrefs.getString(KEY_SERVER_ADDRESS, null)
+    }
+
+    // ========== WebSocket Token ==========
+
+    fun getWsTokenSync(): String? {
+        return regularPrefs.getString(KEY_WS_TOKEN, null)
+    }
+
+    suspend fun saveWsToken(token: String) {
+        regularPrefs.edit().putString(KEY_WS_TOKEN, token).apply()
+    }
+
+    // ========== Claude Session ID ==========
+
+    fun getClaudeSessionIdSync(): String? {
+        return regularPrefs.getString(KEY_CLAUDE_SESSION_ID, null)
+    }
+
+    suspend fun saveClaudeSessionId(sessionId: String) {
+        regularPrefs.edit().putString(KEY_CLAUDE_SESSION_ID, sessionId).apply()
+    }
+
+    suspend fun clearConnection() {
+        regularPrefs.edit()
+            .remove(KEY_SERVER_ADDRESS)
+            .remove(KEY_SESSION_ID)
+            .remove(KEY_WS_TOKEN)
+            .remove(KEY_CLAUDE_SESSION_ID)
+            .remove(KEY_DEVICE_ID)
+            .apply()
+    }
     
     // ========== Combined Auth Save/Clear ==========
     
     suspend fun saveAuth(token: String, userId: String, username: String, serverAddress: String) {
-        // Save token encrypted
-        encryptedPrefs.edit().putString(KEY_TOKEN, token).apply()
-        // Save other data in regular prefs
+        // Save token to both encrypted and regular prefs (fallback)
+        try {
+            encryptedPrefs.edit().putString(KEY_TOKEN, token).apply()
+        } catch (e: Exception) {
+            // Encrypted prefs failed, save to regular prefs only
+        }
         regularPrefs.edit()
+            .putString(KEY_TOKEN, token)
             .putString(KEY_USER_ID, userId)
             .putString(KEY_USERNAME, username)
             .putString(KEY_SERVER_ADDRESS, serverAddress)
@@ -133,14 +207,27 @@ class DataStoreManager @Inject constructor(
     
     suspend fun clearAuth() {
         encryptedPrefs.edit().clear().apply()
-        regularPrefs.edit().clear().apply()
+        regularPrefs.edit()
+            .remove(KEY_TOKEN)
+            .remove(KEY_USER_ID)
+            .remove(KEY_USERNAME)
+            .remove(KEY_SERVER_ADDRESS)
+            .remove(KEY_DEVICE_ID)
+            .remove(KEY_SESSION_ID)
+            .remove(KEY_WS_TOKEN)
+            .apply()
     }
     
     /**
      * Check if token exists (for quick auth check)
      */
     fun hasToken(): Boolean {
-        return encryptedPrefs.getString(KEY_TOKEN, null) != null
+        val encryptedToken = try {
+            encryptedPrefs.getString(KEY_TOKEN, null)
+        } catch (e: Exception) {
+            null
+        }
+        return encryptedToken != null || regularPrefs.getString(KEY_TOKEN, null) != null
     }
     
     // ========== Sync Related Keys ==========

@@ -97,4 +97,25 @@ interface MessageDao {
      */
     @Query("SELECT EXISTS(SELECT 1 FROM messages WHERE id = :messageId)")
     suspend fun messageExists(messageId: String): Boolean
+
+    /**
+     * 获取会话的最后一条消息（用于列表预览）
+     */
+    @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND isDeleted = 0 ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLastMessage(sessionId: String): MessageEntity?
+
+    /**
+     * 批量获取多个会话的最后一条消息
+     */
+    @Query("""
+        SELECT * FROM messages
+        WHERE id IN (
+            SELECT id FROM messages
+            WHERE isDeleted = 0
+            GROUP BY sessionId
+            HAVING timestamp = MAX(timestamp)
+        )
+        ORDER BY timestamp DESC
+    """)
+    suspend fun getLastMessagesForAllSessions(): List<MessageEntity>
 }
