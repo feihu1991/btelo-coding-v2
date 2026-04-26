@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
         // Check if we have saved connection info for auto-connect
         val prefs = getSharedPreferences("btelo_settings", MODE_PRIVATE)
         val hasWsToken = prefs.getString("ws_token", null) != null
-        val startDestination = if (hasWsToken) Screen.SessionList.route else Screen.Scan.route
+        val startDestination = if (hasWsToken) Screen.SessionList.route else Screen.Login.route
 
         setContent {
             BteloCodingTheme {

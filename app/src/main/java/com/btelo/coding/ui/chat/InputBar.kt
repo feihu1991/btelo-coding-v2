@@ -78,7 +78,7 @@ fun InputBar(
                 .background(Color(0xFF1C2128), RoundedCornerShape(20.dp)),
             placeholder = {
                 Text(
-                    "消息...",
+                    "给 Claude 发消息...",
                     color = TextSecondary.copy(alpha = 0.5f)
                 )
             },

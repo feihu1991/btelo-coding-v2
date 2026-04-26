@@ -28,7 +28,8 @@ data class SessionListUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val navigateToSessionId: String? = null,
-    val searchQuery: String = ""
+    val searchQuery: String = "",
+    val serverAddress: String = ""
 )
 
 @HiltViewModel
@@ -46,6 +47,17 @@ class SessionListViewModel @Inject constructor(
     init {
         loadSessions()
         ensureServerSession()
+        loadServerAddress()
+    }
+
+    private fun loadServerAddress() {
+        viewModelScope.launch {
+            authRepository.getServerAddress().collect { address ->
+                if (address != null) {
+                    _uiState.value = _uiState.value.copy(serverAddress = address)
+                }
+            }
+        }
     }
 
     private fun loadSessions() {

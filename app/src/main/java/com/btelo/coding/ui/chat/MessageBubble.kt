@@ -1,7 +1,6 @@
 package com.btelo.coding.ui.chat
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,10 +11,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,12 +25,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.btelo.coding.domain.model.Message
@@ -38,15 +36,10 @@ import com.btelo.coding.ui.theme.AiBubbleDark
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
 import com.btelo.coding.ui.theme.CodeBlockBg
-import com.btelo.coding.ui.theme.CodeBlockBorder
-import com.btelo.coding.ui.theme.GreenSuccess
 import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
 import com.btelo.coding.ui.theme.TextTertiary
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 private val UserBubbleShape = RoundedCornerShape(14.dp, 14.dp, 3.dp, 14.dp)
 private val AiBubbleShape = RoundedCornerShape(14.dp, 14.dp, 14.dp, 3.dp)
@@ -58,11 +51,13 @@ private val UserBubbleGradient = Brush.linearGradient(
 @Composable
 fun MessageBubble(message: Message) {
     val isUser = message.isFromUser
+    val clipboardManager = LocalClipboardManager.current
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
+        // Message bubble
         Row(
             modifier = Modifier
                 .padding(
@@ -130,18 +125,55 @@ fun MessageBubble(message: Message) {
             }
         }
 
-        // Timestamp
-        Text(
-            text = formatTimestamp(message.timestamp),
-            style = MaterialTheme.typography.labelSmall,
-            color = TextTertiary,
+        // Action buttons row: copy, retry, pin
+        Row(
             modifier = Modifier.padding(
                 start = if (isUser) 12.dp else 18.dp,
                 end = if (isUser) 18.dp else 12.dp,
                 top = 2.dp,
                 bottom = 4.dp
-            )
-        )
+            ),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            // Copy button
+            IconButton(
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(message.content))
+                },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.ContentCopy,
+                    contentDescription = "复制",
+                    tint = TextTertiary,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            // Retry button
+            IconButton(
+                onClick = { /* TODO: retry */ },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "重试",
+                    tint = TextTertiary,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            // Pin button
+            IconButton(
+                onClick = { /* TODO: pin */ },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.PushPin,
+                    contentDescription = "置顶",
+                    tint = TextTertiary,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
     }
 }
 
@@ -155,9 +187,6 @@ fun CodeBlock(code: String, language: String = "") {
             .padding(4.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(CodeBlockBg)
-            .then(
-                Modifier.background(CodeBlockBg, RoundedCornerShape(8.dp))
-            )
     ) {
         // Code block header with language and copy button
         Row(
@@ -208,7 +237,7 @@ fun AiStreamingBubble(partialContent: String) {
             .padding(horizontal = 12.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.Start
     ) {
-        Box(modifier = Modifier.fillMaxWidth(0.82f)) {
+        Box(modifier = Modifier.fillMaxWidth(0.85f)) {
             Column(
                 modifier = Modifier
                     .clip(AiBubbleShape)
@@ -223,7 +252,6 @@ fun AiStreamingBubble(partialContent: String) {
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Animated blinking cursor
                     Text(
                         text = "\u258B",
                         color = TextSecondary,
@@ -239,103 +267,6 @@ fun AiStreamingBubble(partialContent: String) {
                 }
             }
         }
-    }
-}
-
-@Composable
-fun AskCard(
-    question: String,
-    options: List<String>,
-    selectedIndex: Int = -1,
-    onOptionSelected: (Int) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.Start
-    ) {
-        Box(modifier = Modifier.fillMaxWidth(0.82f)) {
-            Column(
-                modifier = Modifier
-                    .clip(AiBubbleShape)
-                    .background(AiBubbleDark)
-                    .padding(12.dp)
-            ) {
-                Text(
-                    text = question,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                options.forEachIndexed { index, option ->
-                    val isSelected = index == selectedIndex
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (isSelected) Color(0x173B82F6)
-                                else Color.Transparent
-                            )
-                            .clickable { onOptionSelected(index) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(18.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF3B82F6)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "${index + 1}",
-                                color = Color.White,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = option,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isSelected) Color(0xFF60A5FA)
-                            else TextSecondary,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (isSelected) {
-                            Text(
-                                text = "\u2713",
-                                color = GreenSuccess,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PreviewLink(url: String, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color(0x143B82F6))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = url,
-            color = Color(0xFF60A5FA),
-            style = MaterialTheme.typography.bodySmall,
-            textDecoration = TextDecoration.Underline
-        )
     }
 }
 
@@ -368,9 +299,4 @@ private fun parseCodeBlocks(content: String): List<ContentPart> {
         }
     }
     return parts.ifEmpty { listOf(TextPart(content)) }
-}
-
-private fun formatTimestamp(timestamp: Long): String {
-    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
-    return sdf.format(Date(timestamp))
 }

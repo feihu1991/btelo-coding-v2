@@ -8,9 +8,9 @@ val CardSurface = Color(0xFF161B22)
 val CardElevated = Color(0xFF1C2128)
 val InputSurface = Color(0xFF161B22)
 
-// User bubble gradient (blue -> purple)
-val BubbleGradientStart = Color(0xFF3B82F6)  // blue-500
-val BubbleGradientEnd = Color(0xFF8B5CF6)    // purple-500
+// User bubble gradient (red tones)
+val BubbleGradientStart = Color(0xFFDC2626)  // red-600
+val BubbleGradientEnd = Color(0xFFEF4444)    // red-500
 
 // AI bubble
 val AiBubbleDark = Color(0xFF21262D)
