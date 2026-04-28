@@ -58,4 +58,53 @@ class BrowserViewModel @Inject constructor() : ViewModel() {
             showAddWebsiteDialog = false
         )
     }
+
+    fun addPortProxy(port: String) {
+        val portNum = port.toIntOrNull() ?: return
+        val address = "localhost:$portNum"
+        val entry = ProxyEntry(
+            id = "proxy-${System.currentTimeMillis()}",
+            address = address,
+            fullAddress = "http://$address",
+            status = ProxyStatus.ACTIVE
+        )
+        _uiState.value = _uiState.value.copy(
+            proxies = _uiState.value.proxies + entry,
+            showAddPortDialog = false
+        )
+        // TODO: call server proxy CRUD endpoint
+    }
+
+    fun addWebsiteProxy(url: String) {
+        if (url.isBlank()) return
+        val sanitized = url.trim().removeSuffix("/")
+        val entry = ProxyEntry(
+            id = "web-${System.currentTimeMillis()}",
+            address = sanitized.replace("https://", "").replace("http://", ""),
+            fullAddress = sanitized,
+            status = ProxyStatus.ACTIVE
+        )
+        _uiState.value = _uiState.value.copy(
+            proxies = _uiState.value.proxies + entry,
+            showAddWebsiteDialog = false
+        )
+        // TODO: call server proxy CRUD endpoint
+    }
+
+    fun refreshProxy(id: String) {
+        // TODO: call server proxy refresh endpoint
+        android.util.Log.d("BrowserVM", "refreshProxy: $id")
+    }
+
+    fun retryProxy(id: String) {
+        // TODO: call server proxy retry endpoint
+        android.util.Log.d("BrowserVM", "retryProxy: $id")
+    }
+
+    fun closeProxy(id: String) {
+        _uiState.value = _uiState.value.copy(
+            proxies = _uiState.value.proxies.filter { it.id != id }
+        )
+        // TODO: call server proxy delete endpoint
+    }
 }
