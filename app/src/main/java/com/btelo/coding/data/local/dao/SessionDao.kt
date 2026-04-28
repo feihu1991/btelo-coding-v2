@@ -44,4 +44,10 @@ interface SessionDao {
 
     @Query("SELECT * FROM sessions WHERE name LIKE '%' || :query || '%' OR tool LIKE '%' || :query || '%' ORDER BY lastActiveAt DESC")
     fun searchSessions(query: String): Flow<List<SessionEntity>>
+
+    @Query("UPDATE sessions SET tokenCount = :count WHERE id = :sessionId")
+    suspend fun updateTokenCount(sessionId: String, count: Int)
+
+    @Query("UPDATE sessions SET messageCount = :count WHERE id = :sessionId")
+    suspend fun updateMessageCount(sessionId: String, count: Int)
 }

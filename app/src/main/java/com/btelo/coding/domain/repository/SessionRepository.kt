@@ -12,4 +12,6 @@ interface SessionRepository {
     fun getSession(sessionId: String): Flow<Session?>
     suspend fun updateSessionConnection(sessionId: String, isConnected: Boolean)
     suspend fun updateSessionLastActive(sessionId: String)
+    suspend fun updateTokenCount(sessionId: String, count: Int)
+    suspend fun updateMessageCount(sessionId: String, count: Int)
 }

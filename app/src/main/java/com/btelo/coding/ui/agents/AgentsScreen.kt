@@ -34,7 +34,10 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +53,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,22 +70,28 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.btelo.coding.ui.chat.AiStreamingBubble
 import com.btelo.coding.ui.chat.InputBar
 import com.btelo.coding.ui.chat.MessageBubble
+import com.btelo.coding.ui.chat.SlashCommandPanel
+import com.btelo.coding.ui.theme.AccentBlue
 import com.btelo.coding.ui.theme.AppBackground
 import com.btelo.coding.ui.theme.AvatarColors
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
+import com.btelo.coding.ui.theme.SendGradientEnd
+import com.btelo.coding.ui.theme.SendGradientStart
 import com.btelo.coding.ui.theme.CardSurface
 import com.btelo.coding.ui.theme.CardElevated
 import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
 import com.btelo.coding.ui.theme.TextTertiary
+import com.btelo.coding.ui.theme.ThinkingPurple
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentsScreen(
     onSessionListOpen: () -> Unit,
     onSessionClick: (String) -> Unit,
+    onDisconnect: () -> Unit,
     viewModel: AgentsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -106,8 +117,14 @@ fun AgentsScreen(
         topBar = {
             AgentsTopBar(
                 sessionName = uiState.currentSessionName,
+                tokenCount = uiState.tokenCount,
+                commandTag = uiState.currentCommandTag,
                 onMenuClick = onSessionListOpen,
-                onNotificationClick = { }
+                onNotificationClick = { },
+                onDisconnect = {
+                    viewModel.disconnect()
+                    onDisconnect()
+                }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -181,6 +198,15 @@ fun AgentsScreen(
                 }
             )
 
+            // Slash command panel
+            if (uiState.showSlashPanel) {
+                SlashCommandPanel(
+                    filter = uiState.inputText,
+                    onCommandSelected = viewModel::selectSlashCommand,
+                    onDismiss = viewModel::dismissSlashPanel
+                )
+            }
+
             // Input bar + toolbar
             AgentsInputBar(
                 text = uiState.inputText,
@@ -197,33 +223,39 @@ fun AgentsScreen(
 @Composable
 private fun AgentsTopBar(
     sessionName: String,
+    tokenCount: Int = 0,
+    commandTag: String? = null,
     onMenuClick: () -> Unit,
-    onNotificationClick: () -> Unit
+    onNotificationClick: () -> Unit,
+    onDisconnect: () -> Unit
 ) {
     TopAppBar(
         title = {
-            // Session name pill
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(CardSurface)
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // Session name pill
+                Text(
+                    text = sessionName.ifBlank { "BTELO Coding" },
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // Token count + command tag row
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = sessionName.ifBlank { "BTELO Coding" },
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "0 tokens",
-                        fontSize = 11.sp,
+                        text = "$tokenCount context tokens",
+                        fontSize = 12.sp,
                         color = TextTertiary
                     )
+                    if (commandTag != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = commandTag,
+                            fontSize = 14.sp,
+                            color = AccentBlue
+                        )
+                    }
                 }
             }
         },
@@ -246,20 +278,43 @@ private fun AgentsTopBar(
                     modifier = Modifier.size(20.dp)
                 )
             }
-            // Avatar
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(BubbleGradientStart.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.Person,
-                    contentDescription = "Profile",
-                    tint = BubbleGradientStart,
-                    modifier = Modifier.size(18.dp)
-                )
+            // Avatar with dropdown menu
+            var showMenu by remember { mutableStateOf(false) }
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(BubbleGradientStart.copy(alpha = 0.2f))
+                        .clickable { showMenu = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Person,
+                        contentDescription = "Profile",
+                        tint = BubbleGradientStart,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Disconnect") },
+                        onClick = {
+                            showMenu = false
+                            onDisconnect()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.ExitToApp,
+                                contentDescription = null,
+                                tint = TextSecondary
+                            )
+                        }
+                    )
+                }
             }
             Spacer(modifier = Modifier.width(8.dp))
         },
@@ -424,7 +479,7 @@ private fun AgentsInputBar(
             Icon(
                 Icons.Default.AutoAwesome,
                 contentDescription = "AI",
-                tint = Color(0xFF8B5CF6),
+                tint = ThinkingPurple,
                 modifier = Modifier
                     .size(28.dp)
                     .padding(4.dp)
@@ -500,7 +555,7 @@ private fun AgentsInputBar(
                     .clip(CircleShape)
                     .background(
                         if (hasText) Brush.linearGradient(
-                            listOf(BubbleGradientStart, BubbleGradientEnd)
+                            listOf(SendGradientStart, SendGradientEnd)
                         ) else Brush.linearGradient(
                             listOf(Color(0x33FFFFFF), Color(0x33FFFFFF))
                         )

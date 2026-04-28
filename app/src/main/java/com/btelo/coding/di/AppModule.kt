@@ -143,12 +143,24 @@ object AppModule {
             database.execSQL("ALTER TABLE sessions ADD COLUMN currentKeyVersion INTEGER NOT NULL DEFAULT 1")
             database.execSQL("ALTER TABLE sessions ADD COLUMN lastKeyRotation INTEGER NOT NULL DEFAULT 0")
             database.execSQL("ALTER TABLE sessions ADD COLUMN rotationIntervalDays INTEGER NOT NULL DEFAULT 7")
-            
+
             // 为 messages 表添加密钥版本字段
             database.execSQL("ALTER TABLE messages ADD COLUMN keyVersion INTEGER NOT NULL DEFAULT 1")
         }
     }
-    
+
+    // 数据库迁移策略：从 v2 升级到 v3 (PRD 模型扩展)
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE sessions ADD COLUMN path TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE sessions ADD COLUMN messageCount INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE sessions ADD COLUMN tokenCount INTEGER NOT NULL DEFAULT 0")
+            database.execSQL("ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'")
+            database.execSQL("ALTER TABLE messages ADD COLUMN sender TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE messages ADD COLUMN toolsJson TEXT")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -157,7 +169,7 @@ object AppModule {
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
     }

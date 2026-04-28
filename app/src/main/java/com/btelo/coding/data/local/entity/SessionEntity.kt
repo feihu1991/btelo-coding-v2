@@ -9,8 +9,12 @@ data class SessionEntity(
     val id: String,
     val name: String,
     val tool: String,
+    val path: String = "",
     val createdAt: Long,
     val lastActiveAt: Long,
+    val messageCount: Int = 0,
+    val tokenCount: Int = 0,
+    val status: String = "ACTIVE",
     val isConnected: Boolean,
     // 密钥版本相关字段
     val currentKeyVersion: Int = 1,           // 当前密钥版本

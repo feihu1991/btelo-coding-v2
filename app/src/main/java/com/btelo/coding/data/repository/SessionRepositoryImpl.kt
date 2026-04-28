@@ -81,4 +81,12 @@ class SessionRepositoryImpl @Inject constructor(
     override suspend fun updateSessionLastActive(sessionId: String) {
         sessionDao.updateLastActiveTime(sessionId, System.currentTimeMillis())
     }
+
+    override suspend fun updateTokenCount(sessionId: String, count: Int) {
+        sessionDao.updateTokenCount(sessionId, count)
+    }
+
+    override suspend fun updateMessageCount(sessionId: String, count: Int) {
+        sessionDao.updateMessageCount(sessionId, count)
+    }
 }

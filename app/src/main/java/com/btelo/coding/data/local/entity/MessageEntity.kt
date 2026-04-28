@@ -22,9 +22,11 @@ data class MessageEntity(
     val id: String,
     val sessionId: String,
     val content: String,
-    val type: String, // COMMAND, OUTPUT, ERROR
+    val type: String, // COMMAND, OUTPUT, ERROR, TOOL, THINKING
     val timestamp: Long,
     val isFromUser: Boolean,
+    val sender: String = "",
+    val toolsJson: String? = null,
     // 同步相关字段
     val version: Int = 1,           // 版本号，用于冲突解决
     val deviceId: String? = null,  // 发送设备ID

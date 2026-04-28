@@ -10,12 +10,14 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val BteloDarkColorScheme = darkColorScheme(
-    primary = BubbleGradientStart,
+    primary = AccentBlue,
     onPrimary = TextOnBubble,
-    primaryContainer = BubbleGradientEnd,
+    primaryContainer = BubbleGradientStart,
     onPrimaryContainer = TextOnBubble,
     secondary = GreenSuccess,
     onSecondary = TextOnBubble,
+    tertiary = ThinkingPurple,
+    onTertiary = TextOnBubble,
     background = AppBackground,
     onBackground = TextPrimary,
     surface = CardSurface,

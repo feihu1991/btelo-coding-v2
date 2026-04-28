@@ -35,6 +35,25 @@ const claudeInfo = detectClaudeCode();
 // Get local IP address
 // ============================================================
 function getLocalIP() {
+  // Priority: PUBLIC_IP env > LAN IP > localhost
+  if (process.env.PUBLIC_IP) {
+    return process.env.PUBLIC_IP;
+  }
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
+
+/**
+ * Get LAN IP (always the real LAN address, ignoring PUBLIC_IP)
+ */
+function getLanIP() {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name]) {
@@ -730,13 +749,21 @@ const localIP = getLocalIP();
 
 server.listen(PORT, '0.0.0.0', () => {
   const connectUrl = `btelo://${localIP}:${PORT}/${CONNECTION_TOKEN}`;
+  const lanIP = getLanIP();
+  const hasPublicIP = process.env.PUBLIC_IP && process.env.PUBLIC_IP !== lanIP;
 
   console.log('');
   console.log('='.repeat(50));
   console.log('  BTELO Coding Server');
   console.log('='.repeat(50));
-  console.log(`  HTTP:      http://${localIP}:${PORT}`);
-  console.log(`  WebSocket: ws://${localIP}:${PORT}/ws`);
+  if (hasPublicIP) {
+    console.log(`  Public:    http://${localIP}:${PORT}`);
+    console.log(`  LAN:       http://${lanIP}:${PORT}`);
+    console.log(`  WebSocket: ws://${localIP}:${PORT}/ws`);
+  } else {
+    console.log(`  HTTP:      http://${localIP}:${PORT}`);
+    console.log(`  WebSocket: ws://${localIP}:${PORT}/ws`);
+  }
   console.log('');
 
   // Claude Code status

@@ -50,7 +50,7 @@ class MessageRepositoryImpl @Inject constructor(
     
     override fun connect(serverAddress: String, token: String, sessionId: String) {
         _currentSessionId.value = sessionId
-        
+
         val config = WebSocketConfig(
             sessionId = sessionId,
             serverAddress = serverAddress,
@@ -65,9 +65,9 @@ class MessageRepositoryImpl @Inject constructor(
             pingIntervalMs = 30000L,
             pongTimeoutMs = 10000L
         )
-        
+
         val client = webSocketFactory.getOrCreate(config)
-        
+
         // 监听连接状态
         scope.launch {
             client.connectionState.collect { state ->
@@ -75,7 +75,20 @@ class MessageRepositoryImpl @Inject constructor(
                 Logger.d(tag, "连接状态变化: $state")
             }
         }
-        
+
+        // 监听连接事件，连接成功后发送 select_session
+        scope.launch {
+            client.events.collect { event ->
+                when (event) {
+                    is com.btelo.coding.data.remote.websocket.factory.WebSocketEvent.Connected -> {
+                        Logger.i(tag, "WebSocket 已连接，发送 select_session: $sessionId")
+                        client.send(BteloMessage.SelectSession(sessionId = sessionId))
+                    }
+                    else -> { /* ignore */ }
+                }
+            }
+        }
+
         // 监听消息并持久化
         scope.launch {
             client.messages.collect { message ->

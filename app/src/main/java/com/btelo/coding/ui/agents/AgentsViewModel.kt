@@ -6,6 +6,7 @@ import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.domain.model.Message
 import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
+import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.domain.repository.SessionRepository
 import com.btelo.coding.util.Logger
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,6 +37,10 @@ data class AgentsUiState(
     val streamingContent: String = "",
     val isStreaming: Boolean = false,
     val errorMessage: String? = null,
+    val tokenCount: Int = 0,
+    val currentCommandTag: String? = null,
+    val showSlashPanel: Boolean = false,
+    val completionExpanded: Boolean = false,
     val quickActions: List<String> = listOf(
         "Build feature",
         "Fix bug",
@@ -48,7 +53,8 @@ data class AgentsUiState(
 class AgentsViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
     private val sessionRepository: SessionRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val dataStoreManager: DataStoreManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AgentsUiState())
@@ -175,7 +181,33 @@ class AgentsViewModel @Inject constructor(
     }
 
     fun updateInputText(text: String) {
-        _uiState.value = _uiState.value.copy(inputText = text)
+        val showSlashPanel = text.startsWith("/")
+        val commandTag = if (showSlashPanel) {
+            text.substringBefore(" ")
+        } else null
+        _uiState.value = _uiState.value.copy(
+            inputText = text,
+            showSlashPanel = showSlashPanel,
+            currentCommandTag = commandTag
+        )
+    }
+
+    fun dismissSlashPanel() {
+        _uiState.value = _uiState.value.copy(showSlashPanel = false, currentCommandTag = null)
+    }
+
+    fun selectSlashCommand(command: com.btelo.coding.domain.model.SlashCommand) {
+        _uiState.value = _uiState.value.copy(
+            inputText = command.displayName + " ",
+            showSlashPanel = false,
+            currentCommandTag = command.displayName
+        )
+    }
+
+    fun toggleCompletionExpanded() {
+        _uiState.value = _uiState.value.copy(
+            completionExpanded = !_uiState.value.completionExpanded
+        )
     }
 
     fun sendMessage() {
@@ -218,6 +250,13 @@ class AgentsViewModel @Inject constructor(
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(errorMessage = e.message)
             }
+        }
+    }
+
+    fun disconnect() {
+        viewModelScope.launch {
+            dataStoreManager.clearConnection()
+            _uiState.value = AgentsUiState()
         }
     }
 

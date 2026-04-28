@@ -77,7 +77,9 @@ import com.btelo.coding.ui.theme.AppBackground
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
 import com.btelo.coding.ui.theme.CardSurface
+import com.btelo.coding.ui.theme.CodeBlockBorder
 import com.btelo.coding.ui.theme.GreenSuccess
+import com.btelo.coding.ui.theme.RedError
 import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
@@ -219,7 +221,7 @@ fun ScanScreen(
             if (uiState.error != null) {
                 Text(
                     text = uiState.error!!,
-                    color = Color(0xFFEF4444),
+                    color = RedError,
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -501,7 +503,7 @@ private fun ManualInputOverlay(
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = BubbleGradientStart,
-                        unfocusedBorderColor = Color(0xFF30363D),
+                        unfocusedBorderColor = CodeBlockBorder,
                         cursorColor = BubbleGradientStart,
                         focusedTextColor = TextPrimary,
                         unfocusedTextColor = TextPrimary,
@@ -756,7 +758,7 @@ private fun SessionItem(
             containerColor = if (session.is_alive)
                 BubbleGradientStart.copy(alpha = 0.08f)
             else
-                Color(0xFF1E2430)
+                AppBackground
         )
     ) {
         Column(

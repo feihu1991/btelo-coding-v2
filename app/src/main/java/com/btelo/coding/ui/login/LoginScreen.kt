@@ -60,14 +60,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.btelo.coding.ui.theme.AppBackground
+import com.btelo.coding.ui.theme.BorderSubtle
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
 import com.btelo.coding.ui.theme.CardSurface
+import com.btelo.coding.ui.theme.CodeBlockBg
+import com.btelo.coding.ui.theme.RedError
 import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
 import com.btelo.coding.ui.theme.TextTertiary
-import com.btelo.coding.ui.theme.BorderSubtle
 
 @Composable
 fun LoginScreen(
@@ -294,7 +296,7 @@ fun LoginScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = uiState.error!!,
-                        color = Color(0xFFEF4444),
+                        color = RedError,
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
@@ -489,7 +491,7 @@ private fun DevicePairingCard(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF0D1117))
+                .background(CodeBlockBg)
                 .padding(horizontal = 32.dp, vertical = 14.dp)
         ) {
             Text(

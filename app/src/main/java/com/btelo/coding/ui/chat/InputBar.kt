@@ -28,9 +28,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import com.btelo.coding.ui.theme.BorderSubtle
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
-import com.btelo.coding.ui.theme.CardSurface
 import com.btelo.coding.ui.theme.InputSurface
 import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
@@ -52,7 +52,7 @@ fun InputBar(
         modifier = modifier
             .fillMaxWidth()
             .background(InputSurface, inputShape)
-            .border(1.dp, Color(0x14FFFFFF), inputShape)
+            .border(1.dp, BorderSubtle, inputShape)
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -75,7 +75,7 @@ fun InputBar(
             modifier = Modifier
                 .weight(1f)
                 .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF1C2128), RoundedCornerShape(20.dp)),
+                .background(InputSurface, RoundedCornerShape(20.dp)),
             placeholder = {
                 Text(
                     "Message, / commands, @ history, $ files",
@@ -83,12 +83,12 @@ fun InputBar(
                 )
             },
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFF1C2128),
-                unfocusedContainerColor = Color(0xFF1C2128),
+                focusedContainerColor = InputSurface,
+                unfocusedContainerColor = InputSurface,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
-                focusedTextColor = Color(0xFFE6EDF3),
-                unfocusedTextColor = Color(0xFFE6EDF3),
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
                 cursorColor = BubbleGradientStart
             ),
             maxLines = 3,

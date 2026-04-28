@@ -3,6 +3,7 @@ package com.btelo.coding.ui.scan
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelo.coding.data.local.DataStoreManager
+import com.btelo.coding.domain.repository.SessionRepository
 import com.btelo.coding.util.Logger
 import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -67,7 +68,8 @@ data class SessionsResponse(
 class ScanViewModel @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val gson: Gson,
-    private val dataStoreManager: DataStoreManager
+    private val dataStoreManager: DataStoreManager,
+    private val sessionRepository: SessionRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ScanUiState())
@@ -95,7 +97,7 @@ class ScanViewModel @Inject constructor(
     /**
      * Parse QR code content and connect to server.
      * Expected format: btelo://IP:PORT/TOKEN
-     * Uses 127.0.0.1 via USB port forwarding for reliable connection.
+     * Uses the original IP from QR code to support LAN connections.
      */
     fun onQrCodeScanned(qrContent: String) {
         if (_uiState.value.isConnecting || _uiState.value.isConnected) return
@@ -109,15 +111,19 @@ class ScanViewModel @Inject constructor(
             return
         }
 
-        val (_, port, token) = parsed
-        // Always use 127.0.0.1 via USB reverse port forwarding
-        val serverUrl = "http://127.0.0.1:$port"
+        val (host, port, token) = parsed
+        // Use the original host from QR code to support LAN/WAN connections
+        val serverUrl = "http://$host:$port"
 
         connect(serverUrl, token)
     }
 
     /**
      * Connect manually with a URL string.
+     * Supported formats:
+     *   - btelo://IP:PORT/TOKEN
+     *   - http://IP:PORT/TOKEN  (token as path segment)
+     *   - http://IP:PORT         (tries /connect without token, falls back to /status)
      */
     fun connectManually(url: String) {
         if (_uiState.value.isConnecting || _uiState.value.isConnected) return
@@ -130,10 +136,22 @@ class ScanViewModel @Inject constructor(
             return
         }
 
-        // Try as plain URL like http://IP:PORT
+        // Try as plain URL like http://IP:PORT or http://IP:PORT/TOKEN
         if (url.startsWith("http://") || url.startsWith("https://")) {
-            // Need to get a token first — try /status endpoint
-            connect(url.trimEnd('/'), null)
+            val cleanUrl = url.trimEnd('/')
+            // Check if there's a token in the path (e.g., http://IP:PORT/TOKEN)
+            val pathParts = cleanUrl.substringAfter("://").split("/", limit = 2)
+            val hostPort = pathParts[0]
+            val pathToken = pathParts.getOrNull(1)
+
+            if (pathToken != null && pathToken.isNotBlank()) {
+                // Treat path segment as token
+                val scheme = if (url.startsWith("https://")) "https" else "http"
+                connect("$scheme://$hostPort", pathToken)
+            } else {
+                // No token — try connecting anyway (server may allow tokenless access)
+                connect(cleanUrl, null)
+            }
             return
         }
 
@@ -148,7 +166,9 @@ class ScanViewModel @Inject constructor(
                 val url = if (token != null) {
                     "$serverAddress/connect?token=$token"
                 } else {
-                    "$serverAddress/status"
+                    // No token — try /connect first (server may allow tokenless),
+                    // then fall back to /status
+                    "$serverAddress/connect"
                 }
 
                 val result = withContext(Dispatchers.IO) {
@@ -160,40 +180,46 @@ class ScanViewModel @Inject constructor(
                     response.body?.string() ?: ""
                 }
 
-                if (token != null) {
-                    // Parse connect response
-                    val connectResp = gson.fromJson(result, ConnectResponse::class.java)
-                    if (connectResp.success) {
-                        // Save connection info - use the actual server URL we connected to,
-                        // not the one from the response (which might be WiFi IP)
-                        dataStoreManager.saveServerAddress(serverAddress)
-                        dataStoreManager.saveWsToken(connectResp.ws_token)
-                        dataStoreManager.saveSessionId(connectResp.session_id)
+                // Try parsing as connect response
+                val connectResp = try {
+                    gson.fromJson(result, ConnectResponse::class.java)
+                } catch (e: Exception) {
+                    null
+                }
 
-                        val sessions = connectResp.available_sessions ?: emptyList()
+                if (connectResp != null && connectResp.success) {
+                    // Save connection info
+                    dataStoreManager.saveServerAddress(serverAddress)
+                    dataStoreManager.saveWsToken(connectResp.ws_token)
+                    dataStoreManager.saveSessionId(connectResp.session_id)
 
-                        _uiState.value = _uiState.value.copy(
-                            isConnecting = false,
-                            isConnected = true,
-                            serverAddress = serverAddress,
-                            sessionId = connectResp.session_id,
-                            wsToken = connectResp.ws_token,
-                            claudeVersion = connectResp.claude_code?.version,
-                            remoteSessions = sessions,
-                            showSessionPicker = sessions.isNotEmpty()
-                        )
-                        Logger.i("ScanVM", "Connected to $serverAddress, ${sessions.size} sessions found")
-                    } else {
-                        _uiState.value = _uiState.value.copy(
-                            isConnecting = false,
-                            error = "Connection failed"
-                        )
-                    }
-                } else {
-                    // Status check — server is reachable but no token
+                    // Create local session so AgentsViewModel can find it
+                    sessionRepository.createSessionWithId(
+                        sessionId = connectResp.session_id,
+                        name = "Claude Code",
+                        tool = "claude"
+                    )
+
+                    val sessions = connectResp.available_sessions ?: emptyList()
+
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
-                        error = "Please scan QR code to get a connection token"
+                        isConnected = true,
+                        serverAddress = serverAddress,
+                        sessionId = connectResp.session_id,
+                        wsToken = connectResp.ws_token,
+                        claudeVersion = connectResp.claude_code?.version,
+                        remoteSessions = sessions,
+                        showSessionPicker = sessions.isNotEmpty()
+                    )
+                    Logger.i("ScanVM", "Connected to $serverAddress, ${sessions.size} sessions found")
+                } else if (token == null) {
+                    // No token and /connect failed — try /status as fallback
+                    tryConnectStatus(serverAddress)
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isConnecting = false,
+                        error = "Connection failed: invalid token or server error"
                     )
                 }
             } catch (e: Exception) {
@@ -203,6 +229,46 @@ class ScanViewModel @Inject constructor(
                     error = "Connection failed: ${e.message}"
                 )
             }
+        }
+    }
+
+    /**
+     * Fallback: check server status when no token is available.
+     */
+    private suspend fun tryConnectStatus(serverAddress: String) {
+        try {
+            val result = withContext(Dispatchers.IO) {
+                val request = Request.Builder()
+                    .url("$serverAddress/status")
+                    .get()
+                    .build()
+                val response = okHttpClient.newCall(request).execute()
+                response.body?.string() ?: ""
+            }
+
+            // Parse status response
+            val statusResp = try {
+                gson.fromJson(result, com.google.gson.JsonObject::class.java)
+            } catch (e: Exception) {
+                null
+            }
+
+            if (statusResp != null && statusResp.has("success") && statusResp.get("success").asBoolean) {
+                _uiState.value = _uiState.value.copy(
+                    isConnecting = false,
+                    error = "Server is reachable. Scan QR code or enter a connection token to continue."
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isConnecting = false,
+                    error = "Server responded but no token provided. Scan QR code to get a token."
+                )
+            }
+        } catch (e: Exception) {
+            _uiState.value = _uiState.value.copy(
+                isConnecting = false,
+                error = "Cannot reach server at $serverAddress: ${e.message}"
+            )
         }
     }
 
@@ -271,6 +337,12 @@ class ScanViewModel @Inject constructor(
         )
         viewModelScope.launch {
             dataStoreManager.saveClaudeSessionId(sessionId)
+            // Create local session so AgentsViewModel can find it
+            sessionRepository.createSessionWithId(
+                sessionId = sessionId,
+                name = "Claude Code",
+                tool = "claude"
+            )
         }
         Logger.i("ScanVM", "Selected Claude session: $sessionId")
     }
