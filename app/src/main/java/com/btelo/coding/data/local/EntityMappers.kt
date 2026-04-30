@@ -5,7 +5,9 @@ import com.btelo.coding.data.local.entity.MessageEntity
 import com.btelo.coding.data.local.entity.SessionEntity
 import com.btelo.coding.domain.model.Device
 import com.btelo.coding.domain.model.Message
+import com.btelo.coding.domain.model.MessageMetadata
 import com.btelo.coding.domain.model.MessageType
+import com.btelo.coding.domain.model.OutputType
 import com.btelo.coding.domain.model.Session
 import com.btelo.coding.domain.model.SessionStatus
 import com.btelo.coding.domain.model.ToolExecution
@@ -67,6 +69,24 @@ object EntityMappers {
             }
         } else null
 
+        // Parse output type
+        val parsedOutputType = if (!outputType.isNullOrBlank()) {
+            try {
+                OutputType.valueOf(outputType)
+            } catch (e: IllegalArgumentException) {
+                null
+            }
+        } else null
+
+        // Parse metadata
+        val parsedMetadata = if (!metadataJson.isNullOrBlank()) {
+            try {
+                gson.fromJson(metadataJson, MessageMetadata::class.java)
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+
         return Message(
             id = id,
             sessionId = sessionId,
@@ -79,13 +99,26 @@ object EntityMappers {
             timestamp = timestamp,
             isFromUser = isFromUser,
             sender = sender,
-            tools = tools
+            tools = tools,
+            
+            // BTELO Coding v2: Structured Output
+            outputType = parsedOutputType,
+            metadata = parsedMetadata,
+            thinkingContent = thinkingContent
         )
     }
 
     fun Message.toEntity(): MessageEntity {
         val toolsJson = if (!tools.isNullOrEmpty()) {
             gson.toJson(tools)
+        } else null
+
+        // Serialize output type
+        val outputTypeStr = outputType?.name
+
+        // Serialize metadata
+        val metadataJsonStr = if (metadata != null) {
+            gson.toJson(metadata)
         } else null
 
         return MessageEntity(
@@ -97,6 +130,12 @@ object EntityMappers {
             isFromUser = isFromUser,
             sender = sender,
             toolsJson = toolsJson,
+            
+            // BTELO Coding v2: Structured Output
+            outputType = outputTypeStr,
+            metadataJson = metadataJsonStr,
+            thinkingContent = thinkingContent,
+            
             version = 1,
             deviceId = null,
             isSynced = false,
@@ -115,6 +154,12 @@ object EntityMappers {
             isFromUser = isFromUser,
             sender = sender,
             toolsJson = toolsJson,
+            
+            // BTELO Coding v2: Structured Output
+            outputType = outputType,
+            metadataJson = metadataJson,
+            thinkingContent = thinkingContent,
+            
             version = version,
             deviceId = deviceId,
             isSynced = isSynced,

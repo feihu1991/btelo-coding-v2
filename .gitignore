@@ -1,11 +1,86 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+*.log
+
+# Gradle files
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local configuration file
+*.properties
+local.properties
+
+# Log Files
+*.log
+logs/
+
+# IntelliJ
 *.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/captures
+.idea/
+*.ipr
+*.iws
+
+# Android Studio
+captures/
 .externalNativeBuild
 .cxx
-local.properties
-/app/build
+*.xcuserstate
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services (firebase etc.)
+google-services.json
+
+# Node.js server
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+htmlcov/
+/coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+*.bak
+
+# Claude Code
+.claude/

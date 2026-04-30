@@ -11,6 +11,18 @@ interface MessageRepository {
     suspend fun getLastMessage(sessionId: String): Message?
     suspend fun sendMessage(sessionId: String, content: String): Result<Unit>
     fun observeOutput(sessionId: String): Flow<Message>
+    
+    /**
+     * Observe structured output messages (BTELO Coding v2)
+     * These are parsed Claude Code stream-json outputs with type classification
+     */
+    fun observeStructuredOutput(sessionId: String): Flow<Message>
+    
+    /**
+     * Save a message directly (for structured output buffering)
+     */
+    suspend fun saveMessage(message: Message)
+    
     fun disconnect(sessionId: String)
     val connectionState: StateFlow<ConnectionState>
     suspend fun cleanOldMessages(sessionId: String, keepDays: Int = 30)

@@ -6,37 +6,114 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonSyntaxException
 
+/**
+ * Structured Output Type Enum for BTELO Coding v2
+ * Used for parsing Claude Code stream-json output into structured messages
+ */
+enum class OutputType {
+    /** Regular text response from Claude */
+    CLAUDE_RESPONSE,
+    
+    /** Tool usage call (Bash, Read, Edit, etc.) */
+    TOOL_CALL,
+    
+    /** File operation details */
+    FILE_OP,
+    
+    /** Thinking/thought process */
+    THINKING,
+    
+    /** Error message */
+    ERROR,
+    
+    /** System message */
+    SYSTEM
+}
+
 sealed class BteloMessage {
     data class Command(val content: String, val type: InputType) : BteloMessage()
     data class Output(val data: String, val stream: StreamType) : BteloMessage()
     data class Status(val connected: Boolean) : BteloMessage()
     data class PublicKey(val key: String) : BteloMessage()
+    
     // 密钥轮换消息
     data class KeyRotation(
-        val action: String,        // "initiate" | "accept" | "complete"
-        val newPublicKey: String,  // Base64编码的新公钥
-        val keyVersion: Int,       // 密钥版本号
+        val action: String,
+        val newPublicKey: String,
+        val keyVersion: Int,
         val timestamp: Long
     ) : BteloMessage()
+    
     // 带密钥版本的数据消息
     data class EncryptedData(
         val data: String,
         val stream: StreamType,
-        val keyVersion: Int  // 用于标识使用哪个密钥版本解密
+        val keyVersion: Int
     ) : BteloMessage()
+    
     // 会话同步消息
     data class SyncHistory(
         val sessionId: String,
         val messages: List<HistoryMessage>
     ) : BteloMessage()
+    
     data class NewMessage(
         val sessionId: String,
         val message: HistoryMessage
     ) : BteloMessage()
+    
     data class SelectSession(
         val sessionId: String
     ) : BteloMessage()
+    
+    /**
+     * Structured Output Message (BTELO Coding v2)
+     * 
+     * Represents parsed Claude Code stream-json output with type classification:
+     * - claude_response: Regular text output
+     * - tool_call: Tool usage request with metadata
+     * - file_op: File operation details
+     * - thinking: Thinking process
+     * - error: Error message
+     * - system: System message
+     */
+    data class StructuredOutput(
+        val outputType: OutputType,
+        val content: String,
+        val metadata: OutputMetadata,
+        val timestamp: String
+    ) : BteloMessage()
+    
+    /**
+     * Session State Message (BTELO Coding v2)
+     * Broadcasts connection state between peers
+     */
+    data class SessionState(
+        val mobileConnected: Boolean,
+        val bridgeConnected: Boolean,
+        val timestamp: Long
+    ) : BteloMessage()
 }
+
+/**
+ * Metadata for structured output messages
+ */
+data class OutputMetadata(
+    val toolId: String? = null,
+    val toolName: String? = null,
+    val toolType: String? = null,
+    val filePath: String? = null,
+    val command: String? = null,
+    val parameters: Map<String, Any>? = null,
+    val isFileOp: Boolean = false,
+    val fileOpType: String? = null,
+    val isToolResult: Boolean = false,
+    val isCollapsed: Boolean = false,
+    val originalLength: Int = 0,
+    val errorCode: String? = null,
+    val errorDetails: String? = null,
+    val parserVersion: String = "1.0.0"
+)
 
 data class HistoryMessage(
     val id: String,
@@ -104,6 +181,19 @@ class MessageProtocol(private val gson: Gson) {
                 json.addProperty("type", "select_session")
                 json.addProperty("session_id", message.sessionId)
             }
+            is BteloMessage.StructuredOutput -> {
+                json.addProperty("type", "structured_output")
+                json.addProperty("output_type", message.outputType.name.lowercase())
+                json.addProperty("content", message.content)
+                json.add("metadata", gson.toJsonTree(message.metadata))
+                json.addProperty("timestamp", message.timestamp)
+            }
+            is BteloMessage.SessionState -> {
+                json.addProperty("type", "session_state")
+                json.addProperty("mobile_connected", message.mobileConnected)
+                json.addProperty("bridge_connected", message.bridgeConnected)
+                json.addProperty("timestamp", message.timestamp)
+            }
         }
         return gson.toJson(json)
     }
@@ -123,7 +213,7 @@ class MessageProtocol(private val gson: Gson) {
 
     private fun deserializeInternal(jsonObject: JsonObject): BteloMessage? {
         return try {
-            when (jsonObject.get("type")?.asString) {
+            when (val type = jsonObject.get("type")?.asString) {
                 "command" -> BteloMessage.Command(
                     content = jsonObject.get("content")?.asString ?: "",
                     type = InputType.valueOf(
@@ -191,8 +281,56 @@ class MessageProtocol(private val gson: Gson) {
                 "select_session" -> BteloMessage.SelectSession(
                     sessionId = jsonObject.get("session_id")?.asString ?: ""
                 )
+                
+                // BTELO Coding v2: Structured Output
+                "structured_output" -> {
+                    val outputTypeStr = jsonObject.get("output_type")?.asString?.uppercase() ?: "CLAUDE_RESPONSE"
+                    val outputType = try {
+                        OutputType.valueOf(outputTypeStr)
+                    } catch (e: IllegalArgumentException) {
+                        OutputType.CLAUDE_RESPONSE
+                    }
+                    
+                    val metadataObj = jsonObject.getAsJsonObject("metadata")
+                    val metadata = if (metadataObj != null) {
+                        OutputMetadata(
+                            toolId = metadataObj.get("toolId")?.asString,
+                            toolName = metadataObj.get("toolName")?.asString,
+                            toolType = metadataObj.get("toolType")?.asString,
+                            filePath = metadataObj.get("filePath")?.asString,
+                            command = metadataObj.get("command")?.asString,
+                            isFileOp = metadataObj.get("isFileOp")?.asBoolean ?: false,
+                            fileOpType = metadataObj.get("fileOpType")?.asString,
+                            isToolResult = metadataObj.get("isToolResult")?.asBoolean ?: false,
+                            isCollapsed = metadataObj.get("isCollapsed")?.asBoolean ?: false,
+                            originalLength = metadataObj.get("originalLength")?.asInt ?: 0,
+                            errorCode = metadataObj.get("code")?.asString,
+                            errorDetails = metadataObj.get("details")?.asString,
+                            parserVersion = metadataObj.get("parserVersion")?.asString ?: "1.0.0"
+                        )
+                    } else {
+                        OutputMetadata()
+                    }
+                    
+                    BteloMessage.StructuredOutput(
+                        outputType = outputType,
+                        content = jsonObject.get("content")?.asString ?: "",
+                        metadata = metadata,
+                        timestamp = jsonObject.get("timestamp")?.asString ?: ""
+                    )
+                }
+                
+                // BTELO Coding v2: Session State
+                "session_state" -> {
+                    BteloMessage.SessionState(
+                        mobileConnected = jsonObject.get("mobile_connected")?.asBoolean ?: false,
+                        bridgeConnected = jsonObject.get("bridge_connected")?.asBoolean ?: false,
+                        timestamp = jsonObject.get("timestamp")?.asLong ?: System.currentTimeMillis()
+                    )
+                }
+                
                 else -> {
-                    Logger.w(tag, "未知的消息类型: ${jsonObject.get("type")?.asString}")
+                    Logger.w(tag, "未知的消息类型: $type")
                     null
                 }
             }

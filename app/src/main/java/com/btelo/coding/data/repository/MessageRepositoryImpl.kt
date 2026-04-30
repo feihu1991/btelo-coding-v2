@@ -7,12 +7,16 @@ import com.btelo.coding.data.local.dao.MessageDao
 import com.btelo.coding.data.local.entity.MessageEntity
 import com.btelo.coding.data.remote.websocket.BteloMessage
 import com.btelo.coding.data.remote.websocket.InputType
+import com.btelo.coding.data.remote.websocket.OutputType
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.data.remote.websocket.factory.WebSocketClientFactory
 import com.btelo.coding.data.remote.websocket.factory.WebSocketConfig
 import com.btelo.coding.data.remote.websocket.factory.ReconnectConfig
+import com.btelo.coding.data.remote.websocket.factory.WebSocketEvent
 import com.btelo.coding.domain.model.Message
+import com.btelo.coding.domain.model.MessageMetadata
 import com.btelo.coding.domain.model.MessageType
+import com.btelo.coding.domain.model.OutputType as DomainOutputType
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.util.Logger
 import kotlinx.coroutines.CoroutineScope
@@ -20,8 +24,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -47,6 +53,9 @@ class MessageRepositoryImpl @Inject constructor(
     // 连接状态
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+    
+    // Structured output flow for BTELO Coding v2
+    private val _structuredOutputFlow = MutableSharedFlow<Message>(extraBufferCapacity = 64)
     
     override fun connect(serverAddress: String, token: String, sessionId: String) {
         _currentSessionId.value = sessionId
@@ -80,7 +89,7 @@ class MessageRepositoryImpl @Inject constructor(
         scope.launch {
             client.events.collect { event ->
                 when (event) {
-                    is com.btelo.coding.data.remote.websocket.factory.WebSocketEvent.Connected -> {
+                    is WebSocketEvent.Connected -> {
                         Logger.i(tag, "WebSocket 已连接，发送 select_session: $sessionId")
                         client.send(BteloMessage.SelectSession(sessionId = sessionId))
                     }
@@ -92,55 +101,125 @@ class MessageRepositoryImpl @Inject constructor(
         // 监听消息并持久化
         scope.launch {
             client.messages.collect { message ->
-                when (message) {
-                    is BteloMessage.Output -> {
-                        val domainMessage = Message(
-                            id = java.util.UUID.randomUUID().toString(),
-                            sessionId = sessionId,
-                            content = message.data,
-                            type = when (message.stream) {
-                                com.btelo.coding.data.remote.websocket.StreamType.STDERR -> MessageType.ERROR
-                                else -> MessageType.OUTPUT
-                            },
-                            timestamp = System.currentTimeMillis(),
-                            isFromUser = false
-                        )
-                        messageDao.insertMessage(domainMessage.toEntity())
-                    }
-                    is BteloMessage.SyncHistory -> {
-                        // Bulk insert history from Claude Code session
-                        Logger.i(tag, "收到历史同步: ${message.messages.size} 条消息")
-                        val entities = message.messages.map { hm ->
-                            MessageEntity(
-                                id = hm.id,
-                                sessionId = message.sessionId,
-                                content = hm.content,
-                                type = if (hm.isFromUser) "COMMAND" else "OUTPUT",
-                                timestamp = hm.timestamp,
-                                isFromUser = hm.isFromUser
-                            )
-                        }
-                        messageDao.insertMessages(entities)
-                    }
-                    is BteloMessage.NewMessage -> {
-                        // Real-time new message from JSONL file watcher
-                        Logger.i(tag, "收到新消息同步: ${message.message.content.take(50)}")
-                        val entity = MessageEntity(
-                            id = message.message.id,
-                            sessionId = message.sessionId,
-                            content = message.message.content,
-                            type = if (message.message.isFromUser) "COMMAND" else "OUTPUT",
-                            timestamp = message.message.timestamp,
-                            isFromUser = message.message.isFromUser
-                        )
-                        messageDao.insertMessage(entity)
-                    }
-                    else -> { /* ignore other message types */ }
-                }
+                handleMessage(message, sessionId)
             }
         }
         
         Logger.i(tag, "连接会话: $sessionId 到 $serverAddress")
+    }
+    
+    /**
+     * Handle incoming WebSocket messages
+     * Dispatches to appropriate handlers based on message type
+     */
+    private suspend fun handleMessage(message: BteloMessage, sessionId: String) {
+        when (message) {
+            is BteloMessage.Output -> {
+                val domainMessage = Message(
+                    id = java.util.UUID.randomUUID().toString(),
+                    sessionId = sessionId,
+                    content = message.data,
+                    type = when (message.stream) {
+                        com.btelo.coding.data.remote.websocket.StreamType.STDERR -> MessageType.ERROR
+                        else -> MessageType.OUTPUT
+                    },
+                    timestamp = System.currentTimeMillis(),
+                    isFromUser = false
+                )
+                messageDao.insertMessage(domainMessage.toEntity())
+            }
+            
+            is BteloMessage.SyncHistory -> {
+                // Bulk insert history from Claude Code session
+                Logger.i(tag, "收到历史同步: ${message.messages.size} 条消息")
+                val entities = message.messages.map { hm ->
+                    MessageEntity(
+                        id = hm.id,
+                        sessionId = message.sessionId,
+                        content = hm.content,
+                        type = if (hm.isFromUser) "COMMAND" else "OUTPUT",
+                        timestamp = hm.timestamp,
+                        isFromUser = hm.isFromUser
+                    )
+                }
+                messageDao.insertMessages(entities)
+            }
+            
+            is BteloMessage.NewMessage -> {
+                // Real-time new message from JSONL file watcher
+                Logger.i(tag, "收到新消息同步: ${message.message.content.take(50)}")
+                val entity = MessageEntity(
+                    id = message.message.id,
+                    sessionId = message.sessionId,
+                    content = message.message.content,
+                    type = if (message.message.isFromUser) "COMMAND" else "OUTPUT",
+                    timestamp = message.message.timestamp,
+                    isFromUser = message.message.isFromUser
+                )
+                messageDao.insertMessage(entity)
+            }
+            
+            // BTELO Coding v2: Structured Output handling
+            is BteloMessage.StructuredOutput -> {
+                Logger.d(tag, "收到结构化输出: ${message.outputType}")
+                
+                val domainOutputType = when (message.outputType) {
+                    OutputType.CLAUDE_RESPONSE -> DomainOutputType.CLAUDE_RESPONSE
+                    OutputType.TOOL_CALL -> DomainOutputType.TOOL_CALL
+                    OutputType.FILE_OP -> DomainOutputType.FILE_OP
+                    OutputType.THINKING -> DomainOutputType.THINKING
+                    OutputType.ERROR -> DomainOutputType.ERROR
+                    OutputType.SYSTEM -> DomainOutputType.SYSTEM
+                }
+                
+                val metadata = message.metadata?.let { m ->
+                    MessageMetadata(
+                        toolId = m.toolId,
+                        toolName = m.toolName,
+                        toolType = m.toolType,
+                        filePath = m.filePath,
+                        command = m.command,
+                        isFileOp = m.isFileOp,
+                        fileOpType = m.fileOpType,
+                        isToolResult = m.isToolResult,
+                        isCollapsed = m.isCollapsed,
+                        originalLength = m.originalLength,
+                        errorCode = m.errorCode,
+                        errorDetails = m.errorDetails
+                    )
+                }
+                
+                val structuredMessage = Message(
+                    id = "struct-${System.currentTimeMillis()}-${java.util.UUID.randomUUID().toString().take(4)}",
+                    sessionId = sessionId,
+                    content = message.content,
+                    type = when (message.outputType) {
+                        OutputType.ERROR -> MessageType.ERROR
+                        OutputType.TOOL_CALL -> MessageType.TOOL
+                        OutputType.THINKING -> MessageType.THINKING
+                        else -> MessageType.OUTPUT
+                    },
+                    timestamp = System.currentTimeMillis(),
+                    isFromUser = false,
+                    outputType = domainOutputType,
+                    metadata = metadata,
+                    thinkingContent = if (message.outputType == OutputType.THINKING) message.content else null
+                )
+                
+                // Emit to structured output flow
+                _structuredOutputFlow.emit(structuredMessage)
+                
+                // Also save to database for persistence
+                messageDao.insertMessage(structuredMessage.toEntity())
+            }
+            
+            is BteloMessage.SessionState -> {
+                // Connection state broadcast (logged for debugging)
+                Logger.d(tag, "会话状态: mobile=${message.mobileConnected}, bridge=${message.bridgeConnected}")
+            }
+            
+            else -> { /* ignore other message types */ }
+        }
     }
 
     override fun getMessages(sessionId: String): Flow<List<Message>> {
@@ -204,6 +283,16 @@ class MessageRepositoryImpl @Inject constructor(
                 } else null
             } else null
         }.mapNotNull { it }
+    }
+    
+    override fun observeStructuredOutput(sessionId: String): Flow<Message> {
+        return _structuredOutputFlow
+            .map { it.copy(sessionId = sessionId) }
+            .mapNotNull { it }
+    }
+    
+    override suspend fun saveMessage(message: Message) {
+        messageDao.insertMessage(message.toEntity())
     }
     
     override fun disconnect(sessionId: String) {

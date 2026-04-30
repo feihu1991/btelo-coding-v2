@@ -1,12 +1,14 @@
 {
   "name": "btelo-coding-server",
   "version": "2.0.0",
-  "description": "BTELO Coding relay server + bridge CLI",
+  "description": "BTELO Coding relay server + bridge CLI with PTY and structured output support",
   "main": "relay.js",
   "scripts": {
     "start": "node relay.js",
     "relay": "node relay.js",
     "bridge": "node bridge.js",
+    "pty": "node pty-bridge.js",
+    "legacy": "node index.js",
     "restart": "node ./restart.js"
   },
   "dependencies": {
@@ -15,5 +17,26 @@
     "qrcode-terminal": "^0.12.0",
     "uuid": "^9.0.0",
     "ws": "^8.16.0"
-  }
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/btelo-coding"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mobile",
+    "remote",
+    "coding",
+    "pty",
+    "websocket"
+  ],
+  "author": "BTELO",
+  "license": "MIT"
 }

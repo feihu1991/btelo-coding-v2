@@ -3,12 +3,16 @@ package com.btelo.coding.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
+import com.btelo.coding.data.remote.websocket.OutputType
 import com.btelo.coding.domain.model.Message
+import com.btelo.coding.domain.model.MessageMetadata
+import com.btelo.coding.domain.model.OutputType as DomainOutputType
 import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.domain.repository.SessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,7 +33,29 @@ data class ChatUiState(
     val showConnectionDetails: Boolean = false,
     val streamingContent: String = "",
     val isStreaming: Boolean = false,
-    val sessionName: String = "Claude"
+    val sessionName: String = "Claude",
+    
+    // BTELO Coding v2: Structured output state
+    val structuredOutputBuffer: StructuredOutputBuffer = StructuredOutputBuffer()
+)
+
+/**
+ * Buffer for accumulating structured output messages
+ * Groups related structured messages together
+ */
+data class StructuredOutputBuffer(
+    val messageId: String = "",
+    val parts: List<StructuredPart> = emptyList(),
+    val isComplete: Boolean = false
+)
+
+/**
+ * A single part of structured output
+ */
+data class StructuredPart(
+    val outputType: OutputType,
+    val content: String,
+    val metadata: MessageMetadata? = null
 )
 
 @HiltViewModel
@@ -61,6 +87,7 @@ class ChatViewModel @Inject constructor(
         coroutineJobs.add(job)
         loadMessages()
         observeOutput()
+        observeStructuredOutput()
         observeConnectionState()
         observeSession()
     }
@@ -90,7 +117,7 @@ class ChatViewModel @Inject constructor(
                 )
 
                 // Auto-clear streaming after 2 seconds of inactivity
-                kotlinx.coroutines.delay(2000)
+                delay(2000)
                 if (_uiState.value.isStreaming && _uiState.value.streamingContent == newContent) {
                     _uiState.value = _uiState.value.copy(
                         streamingContent = "",
@@ -100,6 +127,126 @@ class ChatViewModel @Inject constructor(
             }
         }
         coroutineJobs.add(job)
+    }
+    
+    /**
+     * Observe structured output messages (BTELO Coding v2)
+     * These are parsed Claude Code stream-json outputs with type classification
+     */
+    private fun observeStructuredOutput() {
+        val job = viewModelScope.launch {
+            messageRepository.observeStructuredOutput(sessionId).collect { structuredMessage ->
+                processStructuredOutput(structuredMessage)
+            }
+        }
+        coroutineJobs.add(job)
+    }
+    
+    /**
+     * Process a structured output message
+     * Groups related parts into a single message for display
+     */
+    private fun processStructuredOutput(structuredMsg: Message) {
+        val currentBuffer = _uiState.value.structuredOutputBuffer
+        val newPart = StructuredPart(
+            outputType = structuredMsg.outputType?.let { 
+                when (it) {
+                    DomainOutputType.CLAUDE_RESPONSE -> OutputType.CLAUDE_RESPONSE
+                    DomainOutputType.TOOL_CALL -> OutputType.TOOL_CALL
+                    DomainOutputType.FILE_OP -> OutputType.FILE_OP
+                    DomainOutputType.THINKING -> OutputType.THINKING
+                    DomainOutputType.ERROR -> OutputType.ERROR
+                    DomainOutputType.SYSTEM -> OutputType.SYSTEM
+                    else -> OutputType.CLAUDE_RESPONSE
+                }
+            } ?: OutputType.CLAUDE_RESPONSE,
+            content = structuredMsg.content,
+            metadata = structuredMsg.metadata
+        )
+        
+        // Check if this completes a message (claude_response after tool_call)
+        val isComplete = newPart.outputType == OutputType.CLAUDE_RESPONSE && 
+                         !currentBuffer.messageId.isEmpty()
+        
+        if (isComplete) {
+            // Flush buffer to messages
+            val finalMessage = buildStructuredMessage(currentBuffer.copy(
+                parts = currentBuffer.parts + newPart,
+                isComplete = true
+            ))
+            
+            // Save to repository
+            viewModelScope.launch {
+                messageRepository.saveMessage(finalMessage)
+            }
+            
+            // Clear buffer
+            _uiState.value = _uiState.value.copy(
+                structuredOutputBuffer = StructuredOutputBuffer(),
+                streamingContent = "",
+                isStreaming = false
+            )
+        } else {
+            // Add to buffer
+            val newMessageId = if (currentBuffer.messageId.isEmpty()) {
+                "struct-${System.currentTimeMillis()}"
+            } else {
+                currentBuffer.messageId
+            }
+            
+            _uiState.value = _uiState.value.copy(
+                structuredOutputBuffer = currentBuffer.copy(
+                    messageId = newMessageId,
+                    parts = currentBuffer.parts + newPart,
+                    isComplete = isComplete
+                ),
+                streamingContent = structuredMsg.content,
+                isStreaming = true
+            )
+        }
+    }
+    
+    /**
+     * Build a single Message from structured parts
+     */
+    private fun buildStructuredMessage(buffer: StructuredOutputBuffer): Message {
+        val parts = buffer.parts
+        
+        // Determine primary output type
+        val primaryType = parts.firstOrNull()?.outputType ?: OutputType.CLAUDE_RESPONSE
+        
+        // Concatenate content
+        val content = parts.joinToString("") { it.content }
+        
+        // Get metadata from relevant parts
+        val toolCallPart = parts.find { it.outputType == OutputType.TOOL_CALL }
+        val metadata = toolCallPart?.metadata ?: MessageMetadata()
+        
+        // Extract thinking content
+        val thinkingPart = parts.find { it.outputType == OutputType.THINKING }
+        
+        // Determine domain output type
+        val domainOutputType = when (primaryType) {
+            OutputType.CLAUDE_RESPONSE -> DomainOutputType.CLAUDE_RESPONSE
+            OutputType.TOOL_CALL -> DomainOutputType.TOOL_CALL
+            OutputType.FILE_OP -> DomainOutputType.FILE_OP
+            OutputType.THINKING -> DomainOutputType.THINKING
+            OutputType.ERROR -> DomainOutputType.ERROR
+            OutputType.SYSTEM -> DomainOutputType.SYSTEM
+            else -> DomainOutputType.CLAUDE_RESPONSE
+        }
+        
+        return Message(
+            id = buffer.messageId,
+            sessionId = sessionId,
+            content = content,
+            type = com.btelo.coding.domain.model.MessageType.OUTPUT,
+            timestamp = System.currentTimeMillis(),
+            isFromUser = false,
+            outputType = domainOutputType,
+            metadata = metadata,
+            thinkingContent = thinkingPart?.content
+        )
     }
 
     private fun observeConnectionState() {
@@ -161,13 +308,12 @@ class ChatViewModel @Inject constructor(
                 isLoading = true,
                 inputText = "",
                 streamingContent = "",
-                isStreaming = true
+                isStreaming = true,
+                structuredOutputBuffer = StructuredOutputBuffer() // Clear buffer
             )
 
             messageRepository.sendMessage(sessionId, content)
                 .onSuccess {
-                    // Keep isStreaming = true until output is fully received
-                    // The streaming content will accumulate from observeOutput
                     _uiState.value = _uiState.value.copy(isLoading = false)
                 }
                 .onFailure { exception ->
@@ -185,15 +331,20 @@ class ChatViewModel @Inject constructor(
      * Flushes accumulated streaming content into the message list.
      */
     fun onStreamComplete() {
-        val streaming = _uiState.value.streamingContent
-        if (streaming.isNotBlank()) {
-            // The content is already persisted by MessageRepositoryImpl,
-            // just clear the streaming state
-            _uiState.value = _uiState.value.copy(
-                streamingContent = "",
-                isStreaming = false
-            )
+        // Flush any remaining structured output buffer
+        val buffer = _uiState.value.structuredOutputBuffer
+        if (buffer.parts.isNotEmpty() && !buffer.isComplete) {
+            val finalMessage = buildStructuredMessage(buffer.copy(isComplete = true))
+            viewModelScope.launch {
+                messageRepository.saveMessage(finalMessage)
+            }
         }
+        
+        _uiState.value = _uiState.value.copy(
+            streamingContent = "",
+            isStreaming = false,
+            structuredOutputBuffer = StructuredOutputBuffer()
+        )
     }
 
     fun toggleConnectionDetails() {

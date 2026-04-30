@@ -1,3 +1,30 @@
+/**
+ * =============================================================================
+ * BTELO Coding Server — LEGACY VERSION
+ * =============================================================================
+ * 
+ * !!!!!!! IMPORTANT: THIS FILE IS DEPRECATED !!!!!!!
+ * 
+ * This file is kept for backward compatibility only.
+ * For new installations, please use the relay + bridge architecture:
+ * 
+ *   1. Start relay server:  node relay.js
+ *   2. Start bridge:        node bridge.js
+ *   3. Or use PTY mode:      node pty-bridge.js --session <session_id>
+ * 
+ * New features in v2.0:
+ * - PTY (Pseudo-Terminal) support for interactive sessions
+ * - Structured output parsing for rich mobile rendering
+ * - Heartbeat mechanism for connection stability
+ * - Session state broadcasting
+ * - Better separation of concerns (relay vs bridge)
+ * 
+ * If you still need to use this legacy version:
+ *   node index.js
+ * 
+ * =============================================================================
+ */
+
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
@@ -35,7 +62,6 @@ const claudeInfo = detectClaudeCode();
 // Get local IP address
 // ============================================================
 function getLocalIP() {
-  // Priority: PUBLIC_IP env > LAN IP > localhost
   if (process.env.PUBLIC_IP) {
     return process.env.PUBLIC_IP;
   }
@@ -50,9 +76,6 @@ function getLocalIP() {
   return '127.0.0.1';
 }
 
-/**
- * Get LAN IP (always the real LAN address, ignoring PUBLIC_IP)
- */
 function getLanIP() {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -66,39 +89,27 @@ function getLanIP() {
 }
 
 // ============================================================
-// Session discovery — find existing Claude Code sessions
+// Session discovery
 // ============================================================
 const CLAUDE_HOME = path.join(os.homedir(), '.claude');
 const SESSIONS_DIR = path.join(CLAUDE_HOME, 'sessions');
 const PROJECTS_DIR = path.join(CLAUDE_HOME, 'projects');
 
-/**
- * Check if a process is still alive
- */
 function isProcessAlive(pid) {
   try {
-    process.kill(pid, 0); // signal 0 = check existence
+    process.kill(pid, 0);
     return true;
   } catch (e) {
     return false;
   }
 }
 
-/**
- * Encode a Windows path to Claude's project directory format
- * C:\workspace\BTELO-Coding-Android → C--workspace-BTELO-Coding-Android
- * Both \ and : are replaced with single -
- */
 function encodeProjectPath(cwd) {
   return cwd.replace(/[\\:]/g, '-');
 }
 
-/**
- * Discover all interactive Claude Code sessions
- */
 function discoverSessions() {
   const sessions = [];
-
   if (!fs.existsSync(SESSIONS_DIR)) {
     console.log('[SESSIONS] Sessions directory not found:', SESSIONS_DIR);
     return sessions;
@@ -121,8 +132,6 @@ function discoverSessions() {
       let messageCount = 0;
       let lastMessage = null;
       if (hasHistory) {
-        const stat = fs.statSync(jsonlPath);
-        // Quick count of user messages
         const content = fs.readFileSync(jsonlPath, 'utf-8');
         const lines = content.split('\n').filter(l => l.trim());
         for (const line of lines) {
@@ -157,14 +166,10 @@ function discoverSessions() {
     }
   }
 
-  // Sort by startedAt descending (most recent first)
   sessions.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
   return sessions;
 }
 
-/**
- * Parse a JSONL entry into a normalized message
- */
 function parseJsonlEntry(entry) {
   if (entry.type === 'user') {
     const content = entry.message.content;
@@ -177,9 +182,7 @@ function parseJsonlEntry(entry) {
   } else if (entry.type === 'assistant') {
     const content = entry.message.content;
     if (!Array.isArray(content)) return null;
-    const textBlocks = content
-      .filter(b => b.type === 'text')
-      .map(b => b.text);
+    const textBlocks = content.filter(b => b.type === 'text').map(b => b.text);
     if (textBlocks.length > 0) {
       return {
         id: entry.uuid,
@@ -192,16 +195,11 @@ function parseJsonlEntry(entry) {
   return null;
 }
 
-/**
- * Parse full JSONL history file into messages
- */
 function parseJsonlHistory(filePath) {
   if (!fs.existsSync(filePath)) return [];
-
   const content = fs.readFileSync(filePath, 'utf-8');
   const lines = content.split('\n').filter(l => l.trim());
   const messages = [];
-
   for (const line of lines) {
     try {
       const entry = JSON.parse(line);
@@ -209,12 +207,11 @@ function parseJsonlHistory(filePath) {
       if (msg) messages.push(msg);
     } catch (e) { /* skip bad lines */ }
   }
-
   return messages;
 }
 
 // ============================================================
-// JSONL file watcher — real-time sync
+// JSONL file watcher
 // ============================================================
 function watchJsonlFile(session) {
   const filePath = session.jsonlPath;
@@ -225,14 +222,12 @@ function watchJsonlFile(session) {
   session.fileWatcher = fs.watch(filePath, (eventType) => {
     if (eventType !== 'change') return;
 
-    // Debounce: 100ms
     clearTimeout(session.watchDebounce);
     session.watchDebounce = setTimeout(() => {
       try {
         const currentSize = fs.statSync(filePath).size;
         if (currentSize <= lastSize) return;
 
-        // Read only the new content
         const buffer = Buffer.alloc(currentSize - lastSize);
         const fd = fs.openSync(filePath, 'r');
         fs.readSync(fd, buffer, 0, buffer.length, lastSize);
@@ -277,116 +272,59 @@ function stopWatching(session) {
 }
 
 // ============================================================
-// In-memory data stores
+// Data stores
 // ============================================================
-const connectTokens = new Map(); // token -> { createdAt, used }
-const sessions = new Map();      // sessionId -> { mobileWs, commandQueue, workDir, claudeSessionId, ... }
-
-// Generate a connection token
-const CONNECTION_TOKEN = 'connect-' + crypto.randomBytes(16).toString('hex');
-connectTokens.set(CONNECTION_TOKEN, { createdAt: Date.now(), used: false });
+const connectTokens = new Map();
+const sessions = new Map();
+const CONNECTION_TOKEN = crypto.randomBytes(16).toString('hex');
 
 // ============================================================
-// API: List available Claude Code sessions
-// ============================================================
-app.get('/sessions', (req, res) => {
-  const discovered = discoverSessions();
-  res.json({
-    success: true,
-    sessions: discovered.map(s => ({
-      session_id: s.sessionId,
-      cwd: s.cwd,
-      pid: s.pid,
-      is_alive: s.isAlive,
-      has_history: s.hasHistory,
-      message_count: s.messageCount,
-      last_message: s.lastMessage,
-      started_at: s.startedAt
-    }))
-  });
-});
-
-// ============================================================
-// API: Connect — mobile scans QR code
+// API: Get connection info (simple pairing)
 // ============================================================
 app.get('/connect', (req, res) => {
-  const { token } = req.query;
-
-  if (!token) {
-    return res.status(400).json({ error: 'Token required' });
-  }
-
-  const tokenData = connectTokens.get(token);
-  if (!tokenData) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-
-  // Token is valid — create a relay session
-  const sessionId = 'sess-' + uuidv4().substring(0, 8);
-  sessions.set(sessionId, {
-    mobileWs: null,
-    commandQueue: [],
-    workDir: process.cwd(),
-    claudeSessionId: null,       // Selected Claude session UUID
-    jsonlPath: null,             // Path to JSONL file
-    processingCommand: false,
-    fileWatcher: null,
-    watchDebounce: null
-  });
-
-  // Generate a WebSocket token for this session
-  const wsToken = 'ws-' + crypto.randomBytes(16).toString('hex');
-  connectTokens.set(wsToken, { sessionId, createdAt: Date.now() });
-
+  const token = CONNECTION_TOKEN;
   const localIP = getLocalIP();
   const PORT = process.env.PORT || 8080;
 
-  // Auto-discover sessions to include in response
-  const discovered = discoverSessions();
+  console.log(`[HTTP] Mobile requesting connect info`);
 
   res.json({
     success: true,
-    session_id: sessionId,
-    ws_token: wsToken,
-    ws_url: `ws://${localIP}:${PORT}/ws?token=${wsToken}`,
-    server_address: `http://${localIP}:${PORT}`,
+    token: token,
+    ws_url: `ws://${localIP}:${PORT}/ws?token=${token}`,
     claude_code: claudeInfo,
-    available_sessions: discovered.map(s => ({
-      session_id: s.sessionId,
-      cwd: s.cwd,
-      is_alive: s.isAlive,
-      message_count: s.messageCount,
-      last_message: s.lastMessage
-    }))
+    available_sessions: discoverSessions()
   });
 });
 
 // ============================================================
-// API: Status — check server health
+// API: List sessions
+// ============================================================
+app.get('/sessions', (req, res) => {
+  res.json({ sessions: discoverSessions() });
+});
+
+// ============================================================
+// API: Status
 // ============================================================
 app.get('/status', (req, res) => {
-  const discovered = discoverSessions();
   res.json({
     status: 'running',
+    version: 'legacy',
     claude_code: claudeInfo,
-    active_sessions: discovered.filter(s => s.isAlive).length,
-    total_sessions: discovered.length,
-    uptime: process.uptime()
+    active_sessions: sessions.size
   });
 });
 
 // ============================================================
-// API: Restart — restart the server
+// API: Restart
 // ============================================================
 app.post('/restart', (req, res) => {
-  console.log('[RESTART] Server restart requested');
+  console.log('[RESTART] Server restart requested (legacy)');
   res.json({ success: true, message: 'Server is restarting...' });
 
-  // Graceful restart after response is sent
   setTimeout(() => {
-    console.log('[RESTART] Shutting down for restart...');
     server.close(() => {
-      // Re-spawn the same process
       const child = spawn(process.argv[0], process.argv.slice(1), {
         detached: true,
         stdio: 'inherit',
@@ -396,20 +334,12 @@ app.post('/restart', (req, res) => {
       child.unref();
       process.exit(0);
     });
-
-    // Force exit if graceful close takes too long
-    setTimeout(() => {
-      console.log('[RESTART] Force exit');
-      process.exit(1);
-    }, 3000);
+    setTimeout(() => process.exit(1), 3000);
   }, 500);
 });
 
-// ============================================================
-// API: Restart (GET) — simple restart via browser/curl
-// ============================================================
 app.get('/restart', (req, res) => {
-  console.log('[RESTART] Server restart requested (GET)');
+  console.log('[RESTART] Server restart requested (legacy)');
   res.json({ success: true, message: 'Server is restarting...' });
 
   setTimeout(() => {
@@ -458,7 +388,6 @@ wss.on('connection', (ws, req) => {
   session.mobileWs = ws;
   console.log(`[WS] Mobile connected to relay session ${sessionId}`);
 
-  // Notify mobile that we're ready
   ws.send(JSON.stringify({
     type: 'status',
     connected: true,
@@ -487,35 +416,23 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// ============================================================
-// WebSocket message handler
-// ============================================================
 function handleWsMessage(ws, msg, session, sessionId) {
   switch (msg.type) {
     case 'command':
       handleCommand(ws, msg, session, sessionId);
       break;
-
     case 'select_session':
       handleSelectSession(ws, msg, session, sessionId);
       break;
-
     case 'publicKey':
-      // Ignore encryption handshake — we use plaintext
       break;
-
     case 'keyRotation':
-      // Ignore
       break;
-
     default:
       console.log(`[WS] Unknown message type: ${msg.type}`);
   }
 }
 
-// ============================================================
-// Handle select_session — attach to an existing Claude session
-// ============================================================
 function handleSelectSession(ws, msg, session, sessionId) {
   const claudeSessionId = msg.session_id;
   if (!claudeSessionId) {
@@ -525,7 +442,6 @@ function handleSelectSession(ws, msg, session, sessionId) {
 
   console.log(`[WS] Selecting Claude session: ${claudeSessionId}`);
 
-  // Find the session
   const discovered = discoverSessions();
   const target = discovered.find(s => s.sessionId === claudeSessionId);
 
@@ -539,16 +455,12 @@ function handleSelectSession(ws, msg, session, sessionId) {
     return;
   }
 
-  // Stop previous watcher if any
   stopWatching(session);
 
-  // Update session state
   session.claudeSessionId = claudeSessionId;
   session.jsonlPath = target.jsonlPath;
   session.workDir = target.cwd;
 
-  // Send history to mobile
-  console.log(`[WS] Loading history from ${target.jsonlPath}`);
   const history = parseJsonlHistory(target.jsonlPath);
   console.log(`[WS] Sending ${history.length} messages to mobile`);
 
@@ -558,10 +470,8 @@ function handleSelectSession(ws, msg, session, sessionId) {
     messages: history
   }));
 
-  // Start watching for real-time changes
   watchJsonlFile(session);
 
-  // Confirm selection
   ws.send(JSON.stringify({
     type: 'status',
     connected: true,
@@ -571,9 +481,6 @@ function handleSelectSession(ws, msg, session, sessionId) {
   }));
 }
 
-// ============================================================
-// Handle command — send to Claude Code via --resume
-// ============================================================
 function handleCommand(ws, msg, session, sessionId) {
   if (!claudeInfo.installed) {
     ws.send(JSON.stringify({
@@ -595,7 +502,6 @@ function handleCommand(ws, msg, session, sessionId) {
 
   console.log(`[WS] Command: ${msg.content.substring(0, 80)}...`);
 
-  // Queue if a command is already being processed
   if (session.processingCommand) {
     session.commandQueue.push(msg.content);
     ws.send(JSON.stringify({
@@ -609,9 +515,6 @@ function handleCommand(ws, msg, session, sessionId) {
   executeCommand(msg.content, session, sessionId);
 }
 
-// ============================================================
-// Execute Claude Code command via --resume
-// ============================================================
 function executeCommand(command, session, sessionId) {
   const args = [
     '-p', command,
@@ -650,7 +553,6 @@ function executeCommand(command, session, sessionId) {
             sendToMobile(session, formatted.data, formatted.stream);
           }
         } catch {
-          // Non-JSON output
           sendToMobile(session, line, 'STDOUT');
         }
       }
@@ -666,7 +568,6 @@ function executeCommand(command, session, sessionId) {
   });
 
   child.on('close', (code) => {
-    // Process remaining buffer
     if (buffer.trim()) {
       try {
         const event = JSON.parse(buffer);
@@ -684,7 +585,6 @@ function executeCommand(command, session, sessionId) {
 
     sendToMobile(session, `\n[Done] Exit code: ${code}\n`, 'STDOUT');
 
-    // Process queued commands
     if (session.commandQueue.length > 0) {
       const next = session.commandQueue.shift();
       console.log(`[CLAUDE] Processing queued command (${session.commandQueue.length} remaining)`);
@@ -698,10 +598,6 @@ function executeCommand(command, session, sessionId) {
     sendToMobile(session, `Error: Failed to start Claude Code: ${err.message}`, 'STDERR');
   });
 }
-
-// ============================================================
-// Helpers
-// ============================================================
 
 function sendToMobile(session, data, stream) {
   if (session.mobileWs && session.mobileWs.readyState === 1) {
@@ -754,8 +650,14 @@ server.listen(PORT, '0.0.0.0', () => {
 
   console.log('');
   console.log('='.repeat(50));
-  console.log('  BTELO Coding Server');
+  console.log('  BTELO Coding Server (LEGACY)');
   console.log('='.repeat(50));
+  console.log('');
+  console.log('  !!!!! WARNING: This is the legacy server !!!!!');
+  console.log('  For new installations, use:');
+  console.log('    - node relay.js  (relay server)');
+  console.log('    - node bridge.js (bridge CLI)');
+  console.log('');
   if (hasPublicIP) {
     console.log(`  Public:    http://${localIP}:${PORT}`);
     console.log(`  LAN:       http://${lanIP}:${PORT}`);
@@ -766,7 +668,6 @@ server.listen(PORT, '0.0.0.0', () => {
   }
   console.log('');
 
-  // Claude Code status
   if (claudeInfo.installed) {
     console.log(`  Claude Code: ${claudeInfo.version}`);
     console.log(`  Path:        ${claudeInfo.path}`);
@@ -775,7 +676,6 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('  Install:     npm install -g @anthropic-ai/claude-code');
   }
 
-  // Discover existing sessions
   const discovered = discoverSessions();
   console.log('');
   console.log(`  Found ${discovered.length} session(s):`);
@@ -788,7 +688,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('  Scan QR code with BTELO app to connect:');
   console.log('');
 
-  // Generate QR code
   qrcode.generate(connectUrl, { small: true }, (qrText) => {
     console.log(qrText);
     console.log('');

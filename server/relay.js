@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 
 /**
- * BTELO Coding Relay Server — pure message forwarder.
- *
+ * BTELO Coding Relay Server — pure message forwarder with enhanced features.
+ * 
  * Routes JSON messages between mobile WebSocket and bridge WebSocket by session ID.
  * Zero knowledge of Claude Code, JSONL files, or session discovery.
- *
+ * 
+ * Enhanced features:
+ * - structured_output message type support
+ * - Connection state broadcasting
+ * - Heartbeat mechanism
+ * - Session cleanup
+ * 
  * Usage:
  *   node relay.js
  *   PORT=9000 node relay.js
@@ -23,6 +29,14 @@ const os = require('os');
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ============================================================
+// Configuration
+// ============================================================
+const HEARTBEAT_INTERVAL = 30000;  // 30 seconds
+const HEARTBEAT_TIMEOUT = 60000;   // 60 seconds (2x interval)
+const SESSION_CLEANUP_INTERVAL = 60000;  // 60 seconds
+const SESSION_MAX_AGE = 5 * 60 * 1000;  // 5 minutes
 
 // ============================================================
 // IP detection
@@ -52,13 +66,52 @@ function getLanIP() {
 // Data stores
 // ============================================================
 const tokens = new Map();   // token -> { type, sessionId, createdAt }
-const sessions = new Map(); // sessionId -> { mobileWs, bridgeWs, connectToken, bridgeToken, createdAt, bridgeInfo }
+const sessions = new Map(); // sessionId -> { mobileWs, bridgeWs, connectToken, bridgeToken, createdAt, bridgeInfo, mobileHeartbeat, bridgeHeartbeat }
+
+// ============================================================
+// Helper: Broadcast session state to both peers
+// ============================================================
+function broadcastSessionState(session) {
+  const stateMsg = JSON.stringify({
+    type: 'session_state',
+    mobile_connected: session.mobileWs !== null,
+    bridge_connected: session.bridgeWs !== null,
+    timestamp: Date.now()
+  });
+  
+  if (session.mobileWs && session.mobileWs.readyState === 1) {
+    session.mobileWs.send(stateMsg);
+  }
+  if (session.bridgeWs && session.bridgeWs.readyState === 1) {
+    session.bridgeWs.send(stateMsg);
+  }
+}
+
+// ============================================================
+// Helper: Forward message with type checking
+// ============================================================
+function forwardMessage(targetWs, senderWs, rawMessage, messageType) {
+  if (targetWs && targetWs.readyState === 1) {
+    targetWs.send(rawMessage);
+    return true;
+  } else if (senderWs && senderWs.readyState === 1) {
+    // Notify sender that peer is not connected
+    senderWs.send(JSON.stringify({
+      type: 'status',
+      connected: false,
+      message: 'Peer not connected',
+      failed_message_type: messageType
+    }));
+    return false;
+  }
+  return false;
+}
 
 // ============================================================
 // API: Bridge registers itself
 // ============================================================
 app.post('/bridge/register', (req, res) => {
-  const { device_name, work_dir } = req.body;
+  const { device_name, work_dir, mode } = req.body;
 
   const sessionId = 'sess-' + uuidv4().substring(0, 8);
   const connectToken = 'connect-' + crypto.randomBytes(16).toString('hex');
@@ -71,7 +124,13 @@ app.post('/bridge/register', (req, res) => {
     connectToken,
     bridgeToken,
     createdAt: Date.now(),
-    bridgeInfo: { device_name: device_name || 'unknown', work_dir: work_dir || process.cwd() }
+    bridgeInfo: { 
+      device_name: device_name || 'unknown', 
+      work_dir: work_dir || process.cwd(),
+      mode: mode || 'resume'
+    },
+    mobileHeartbeat: null,
+    bridgeHeartbeat: Date.now()
   };
 
   sessions.set(sessionId, session);
@@ -81,7 +140,7 @@ app.post('/bridge/register', (req, res) => {
   const localIP = getLocalIP();
   const PORT = process.env.PORT || 8080;
 
-  console.log(`[RELAY] Bridge registered: ${sessionId} (${device_name || 'unknown'})`);
+  console.log(`[RELAY] Bridge registered: ${sessionId} (${device_name || 'unknown'}, mode: ${mode || 'resume'})`);
 
   res.json({
     success: true,
@@ -128,6 +187,7 @@ app.get('/connect', (req, res) => {
     ws_token: wsToken,
     ws_url: `ws://${localIP}:${PORT}/ws?token=${wsToken}`,
     server_address: `http://${localIP}:${PORT}`,
+    bridge_info: session.bridgeInfo,
     claude_code: null,
     available_sessions: null
   });
@@ -144,6 +204,7 @@ app.get('/sessions', (req, res) => {
       mobile_connected: s.mobileWs !== null,
       bridge_connected: s.bridgeWs !== null,
       bridge_device: s.bridgeInfo?.device_name || 'unknown',
+      bridge_mode: s.bridgeInfo?.mode || 'resume',
       created_at: s.createdAt
     });
   }
@@ -162,7 +223,8 @@ app.get('/status', (req, res) => {
     status: 'running',
     active_sessions: active,
     total_sessions: sessions.size,
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    version: '2.0.0'
   });
 });
 
@@ -216,21 +278,6 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 // ============================================================
-// Forward raw JSON between mobile and bridge
-// ============================================================
-function forwardMessage(targetWs, senderWs, rawMessage) {
-  if (targetWs && targetWs.readyState === 1) {
-    targetWs.send(rawMessage);
-  } else if (senderWs && senderWs.readyState === 1) {
-    senderWs.send(JSON.stringify({
-      type: 'status',
-      connected: false,
-      message: 'Peer not connected'
-    }));
-  }
-}
-
-// ============================================================
 // Mobile WebSocket handler
 // ============================================================
 wssMobile.on('connection', (ws, req) => {
@@ -255,13 +302,16 @@ wssMobile.on('connection', (ws, req) => {
   }
 
   session.mobileWs = ws;
+  session.mobileHeartbeat = Date.now();
   console.log(`[RELAY] Mobile connected to session ${session.sessionId}`);
 
   // Notify mobile that relay is ready
   ws.send(JSON.stringify({
     type: 'status',
     connected: true,
-    message: 'Relay ready'
+    message: 'Relay ready',
+    session_id: session.sessionId,
+    bridge_info: session.bridgeInfo
   }));
 
   // Notify bridge that mobile connected
@@ -269,17 +319,29 @@ wssMobile.on('connection', (ws, req) => {
     session.bridgeWs.send(JSON.stringify({
       type: 'status',
       connected: true,
-      peer: 'mobile'
+      peer: 'mobile',
+      mobile_info: {
+        connected_at: Date.now()
+      }
     }));
   }
 
+  // Broadcast session state
+  broadcastSessionState(session);
+
   ws.on('message', (data) => {
-    forwardMessage(session.bridgeWs, ws, data.toString());
+    // Update heartbeat on any message
+    session.mobileHeartbeat = Date.now();
+    
+    // Forward to bridge, preserving the raw message
+    forwardMessage(session.bridgeWs, ws, data.toString(), 'mobile_to_bridge');
   });
 
   ws.on('close', () => {
     console.log(`[RELAY] Mobile disconnected from session ${session.sessionId}`);
     session.mobileWs = null;
+    session.mobileHeartbeat = null;
+    
     // Notify bridge
     if (session.bridgeWs && session.bridgeWs.readyState === 1) {
       session.bridgeWs.send(JSON.stringify({
@@ -289,6 +351,13 @@ wssMobile.on('connection', (ws, req) => {
         reason: 'mobile_disconnected'
       }));
     }
+    
+    broadcastSessionState(session);
+  });
+
+  // Heartbeat pong handler
+  ws.on('pong', () => {
+    session.mobileHeartbeat = Date.now();
   });
 });
 
@@ -317,6 +386,7 @@ wssBridge.on('connection', (ws, req) => {
   }
 
   session.bridgeWs = ws;
+  session.bridgeHeartbeat = Date.now();
   console.log(`[RELAY] Bridge connected to session ${session.sessionId}`);
 
   // Notify bridge that relay is ready
@@ -324,7 +394,12 @@ wssBridge.on('connection', (ws, req) => {
     type: 'status',
     connected: true,
     role: 'bridge',
-    session_id: session.sessionId
+    session_id: session.sessionId,
+    features: {
+      structured_output: true,
+      heartbeat: true,
+      session_state: true
+    }
   }));
 
   // Notify mobile that bridge connected
@@ -332,17 +407,34 @@ wssBridge.on('connection', (ws, req) => {
     session.mobileWs.send(JSON.stringify({
       type: 'status',
       connected: true,
-      message: 'Bridge connected'
+      message: 'Bridge connected',
+      bridge_info: session.bridgeInfo
     }));
   }
 
+  // Broadcast session state
+  broadcastSessionState(session);
+
   ws.on('message', (data) => {
-    forwardMessage(session.mobileWs, ws, data.toString());
+    // Update heartbeat on any message
+    session.bridgeHeartbeat = Date.now();
+    
+    let messageType = 'bridge_to_mobile';
+    let msgObj;
+    try {
+      msgObj = JSON.parse(data.toString());
+      messageType = msgObj.type || messageType;
+    } catch {}
+    
+    // Forward to mobile, preserving the raw message
+    forwardMessage(session.mobileWs, ws, data.toString(), messageType);
   });
 
   ws.on('close', () => {
     console.log(`[RELAY] Bridge disconnected from session ${session.sessionId}`);
     session.bridgeWs = null;
+    session.bridgeHeartbeat = null;
+    
     // Notify mobile
     if (session.mobileWs && session.mobileWs.readyState === 1) {
       session.mobileWs.send(JSON.stringify({
@@ -351,25 +443,63 @@ wssBridge.on('connection', (ws, req) => {
         reason: 'bridge_disconnected'
       }));
     }
+    
+    broadcastSessionState(session);
+  });
+
+  // Heartbeat pong handler
+  ws.on('pong', () => {
+    session.bridgeHeartbeat = Date.now();
   });
 });
 
 // ============================================================
-// Session cleanup: remove stale sessions every 60s
+// Heartbeat mechanism
+// ============================================================
+setInterval(() => {
+  const now = Date.now();
+  
+  for (const [id, session] of sessions) {
+    // Check mobile heartbeat
+    if (session.mobileWs && session.mobileWs.readyState === 1) {
+      if (session.mobileHeartbeat && (now - session.mobileHeartbeat) > HEARTBEAT_TIMEOUT) {
+        console.log(`[RELAY] Mobile heartbeat timeout: ${id}`);
+        session.mobileWs.terminate();
+      } else {
+        // Send ping
+        session.mobileWs.ping();
+      }
+    }
+    
+    // Check bridge heartbeat
+    if (session.bridgeWs && session.bridgeWs.readyState === 1) {
+      if (session.bridgeHeartbeat && (now - session.bridgeHeartbeat) > HEARTBEAT_TIMEOUT) {
+        console.log(`[RELAY] Bridge heartbeat timeout: ${id}`);
+        session.bridgeWs.terminate();
+      } else {
+        // Send ping
+        session.bridgeWs.ping();
+      }
+    }
+  }
+}, HEARTBEAT_INTERVAL);
+
+// ============================================================
+// Session cleanup: remove stale sessions
 // ============================================================
 setInterval(() => {
   const now = Date.now();
   for (const [id, session] of sessions) {
     const bothDisconnected = !session.mobileWs && !session.bridgeWs;
     const age = now - session.createdAt;
-    if (bothDisconnected && age > 5 * 60 * 1000) {
+    if (bothDisconnected && age > SESSION_MAX_AGE) {
       sessions.delete(id);
       tokens.delete(session.connectToken);
       tokens.delete(session.bridgeToken);
       console.log(`[RELAY] Cleaned up stale session: ${id}`);
     }
   }
-}, 60 * 1000);
+}, SESSION_CLEANUP_INTERVAL);
 
 // ============================================================
 // Start server
@@ -383,7 +513,7 @@ server.listen(PORT, '0.0.0.0', () => {
 
   console.log('');
   console.log('='.repeat(50));
-  console.log('  BTELO Coding Relay Server');
+  console.log('  BTELO Coding Relay Server v2.0.0');
   console.log('='.repeat(50));
   if (hasPublicIP) {
     console.log(`  Public:    http://${localIP}:${PORT}`);
@@ -393,6 +523,11 @@ server.listen(PORT, '0.0.0.0', () => {
   }
   console.log(`  Mobile WS: ws://${localIP}:${PORT}/ws`);
   console.log(`  Bridge WS: ws://${localIP}:${PORT}/bridge/ws`);
+  console.log('');
+  console.log('  Features:');
+  console.log('    - structured_output support');
+  console.log('    - heartbeat mechanism');
+  console.log('    - session state broadcasting');
   console.log('');
   console.log('  Waiting for bridges to register...');
   console.log('='.repeat(50));

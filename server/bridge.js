@@ -2,14 +2,23 @@
 
 /**
  * BTELO Coding Bridge — standalone CLI tool managing Claude Code.
- *
+ * 
  * Registers with the relay server, generates a QR code for mobile connection,
  * and manages Claude Code processes (session discovery, command execution, JSONL watching).
- *
+ * 
+ * Two execution modes:
+ * - resume mode: spawns Claude Code per command with --resume flag
+ * - pty mode: uses pty-bridge.js for full pseudo-terminal support
+ * 
+ * Structured output support:
+ * - Parses Claude Code's stream-json output
+ * - Sends structured messages to mobile for rich rendering
+ * 
  * Usage:
  *   node bridge.js
  *   node bridge.js --server http://relay:8080 --workdir /path/to/project
- *   node bridge.js --mode persistent
+ *   node bridge.js --mode pty --session <session_id>
+ *   node bridge.js --structured-output false
  */
 
 const WebSocket = require('ws');
@@ -21,16 +30,37 @@ const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
 
+// Output parser (optional)
+let OutputParser = null;
+try {
+  const parserModule = require('./output-parser.js');
+  OutputParser = parserModule.OutputParser;
+} catch (err) {
+  console.warn('[BRIDGE] output-parser.js not available, using basic mode');
+}
+
+// PTY Bridge (optional)
+let PtyBridge = null;
+try {
+  PtyBridge = require('./pty-bridge.js');
+} catch (err) {
+  console.warn('[BRIDGE] pty-bridge.js not available');
+}
+
 // ============================================================
 // Parse CLI arguments
 // ============================================================
 function parseArgs() {
   const args = process.argv.slice(2);
   const opts = {
-    server: 'http://localhost:8080',
+    server: process.env.RELAY_SERVER || 'http://localhost:8080',
     workDir: process.cwd(),
     name: os.hostname(),
-    mode: 'resume'  // 'resume' or 'persistent'
+    mode: 'resume',  // 'resume' or 'pty'
+    sessionId: null, // Claude session ID to use
+    structuredOutput: true,
+    outputFormat: 'stream-json',
+    verbose: false
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -47,6 +77,18 @@ function parseArgs() {
       case '--mode': case '-m':
         opts.mode = args[++i];
         break;
+      case '--session': case '--resume': case '-r':
+        opts.sessionId = args[++i];
+        break;
+      case '--structured-output': case '--structured':
+        opts.structuredOutput = args[++i].toLowerCase() !== 'false';
+        break;
+      case '--format': case '-f':
+        opts.outputFormat = args[++i];
+        break;
+      case '--verbose': case '-v':
+        opts.verbose = true;
+        break;
       case '--help': case '-h':
         console.log(`
 BTELO Coding Bridge — Claude Code CLI Manager
@@ -55,18 +97,22 @@ Usage:
   node bridge.js [options]
 
 Options:
-  -s, --server <url>       Relay server URL (default: http://localhost:8080)
-  -w, --workdir <path>     Working directory for Claude Code (default: cwd)
-  -n, --name <name>        Device name (default: hostname)
-  -m, --mode <mode>        'resume' (spawn per command) or 'persistent' (one process)
-  -h, --help               Show this help
+  -s, --server <url>         Relay server URL (default: http://localhost:8080)
+  -w, --workdir <path>       Working directory for Claude Code (default: cwd)
+  -n, --name <name>          Device name (default: hostname)
+  -m, --mode <mode>          'resume' (spawn per command) or 'pty' (pseudo-terminal)
+  -r, --session <id>         Claude session ID to resume
+  --structured-output <bool> Enable structured output parsing (default: true)
+  -f, --format <fmt>         Output format: stream-json or text (default: stream-json)
+  -v, --verbose              Verbose output
+  -h, --help                 Show this help
 
 Flow:
   1. Bridge registers with relay server
   2. QR code is displayed — scan with BTELO app
   3. Bridge connects to relay via WebSocket
   4. Commands from mobile are forwarded to Claude Code
-  5. Claude output is streamed back to mobile
+  5. Claude output is streamed back to mobile (structured or raw)
 `);
         process.exit(0);
     }
@@ -302,7 +348,7 @@ function stopWatching(state) {
 }
 
 // ============================================================
-// Claude event formatting
+// Claude Code event formatter
 // ============================================================
 function formatClaudeEvent(event) {
   switch (event.type) {
@@ -317,9 +363,7 @@ function formatClaudeEvent(event) {
       }
       return null;
     case 'result':
-      if (event.result) {
-        return { stream: 'STDOUT', data: event.result };
-      }
+      if (event.result) return { stream: 'STDOUT', data: event.result };
       return null;
     case 'text':
       return { stream: 'STDOUT', data: event.text || '' };
@@ -333,120 +377,13 @@ function formatClaudeEvent(event) {
 }
 
 // ============================================================
-// Persistent Claude process (mode: persistent)
+// Execute Claude Code command via --resume
 // ============================================================
-function startPersistentProcess(state, onOutput) {
+function executeResumeCommand(state, command, onOutput, outputParser) {
   if (!state.claudeSessionId) {
-    state.claudeSessionId = uuidv4();
-  }
-
-  const args = [
-    '--input-format', 'stream-json',
-    '--output-format', 'stream-json',
-    '--session-id', state.claudeSessionId,
-    '--dangerously-skip-permissions'
-  ];
-
-  console.log(`[CLAUDE] Starting persistent process: claude ${args.join(' ')}`);
-  console.log(`[CLAUDE] Session ID: ${state.claudeSessionId}`);
-  console.log(`[CLAUDE] Work dir: ${state.workDir}`);
-
-  const child = spawn('claude', args, {
-    cwd: state.workDir,
-    shell: true,
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-
-  state.claudeProcess = child;
-  state.claudeStdin = child.stdin;
-  state.outputBuffer = '';
-
-  child.stdout.on('data', (data) => {
-    state.outputBuffer += data.toString();
-    const lines = state.outputBuffer.split('\n');
-    state.outputBuffer = lines.pop();
-
-    for (const line of lines) {
-      if (line.trim()) {
-        try {
-          const event = JSON.parse(line);
-          onOutput(event);
-        } catch {
-          onOutput({ type: 'text', text: line });
-        }
-      }
-    }
-  });
-
-  child.stderr.on('data', (data) => {
-    const text = data.toString().trim();
-    if (text) {
-      console.log(`[CLAUDE:stderr] ${text}`);
-      onOutput({ type: 'stderr', text });
-    }
-  });
-
-  child.on('close', (code) => {
-    console.log(`[CLAUDE] Persistent process exited with code ${code}`);
-    state.claudeProcess = null;
-    state.claudeStdin = null;
-    state.processingCommand = false;
-  });
-
-  child.on('error', (err) => {
-    console.error(`[CLAUDE] Failed to start: ${err.message}`);
-    state.claudeProcess = null;
-    state.claudeStdin = null;
-    state.processingCommand = false;
-    onOutput({ type: 'error', text: `Failed to start Claude: ${err.message}` });
-  });
-
-  console.log(`[CLAUDE] Persistent process started (PID: ${child.pid})`);
-}
-
-function sendToPersistentProcess(state, command, onOutput) {
-  if (!state.claudeStdin) {
-    startPersistentProcess(state, onOutput);
-    if (!state.claudeStdin) {
-      onOutput({ type: 'error', text: 'Could not start Claude Code process' });
-      return;
-    }
-  }
-
-  state.processingCommand = true;
-  console.log(`[CLAUDE] Sending command via stdin: ${command.substring(0, 80)}...`);
-
-  const jsonMessage = JSON.stringify({
-    type: 'user_message',
-    content: command
-  }) + '\n';
-
-  try {
-    state.claudeStdin.write(jsonMessage);
-  } catch (err) {
-    console.error(`[CLAUDE] Failed to write to stdin: ${err.message}`);
-    state.processingCommand = false;
-    onOutput({ type: 'error', text: `Failed to send command: ${err.message}` });
-  }
-}
-
-// ============================================================
-// Resume-mode command execution (mode: resume)
-// ============================================================
-function executeResumeCommand(state, command, onOutput) {
-  if (!state.claudeInfo.installed) {
-    onOutput({ type: 'error', text: 'Claude Code is not installed on this computer.' });
+    onOutput({ type: 'output', data: 'Error: No session selected\n', stream: 'STDERR' });
     return;
   }
-
-  if (!state.claudeSessionId) {
-    onOutput({ type: 'error', text: 'No Claude session selected. Please select a session first.' });
-    return;
-  }
-
-  console.log(`[CLAUDE] Running: claude -p "${command.substring(0, 60)}..." -r ${state.claudeSessionId}`);
-
-  state.processingCommand = true;
 
   const args = [
     '-p', command,
@@ -454,6 +391,11 @@ function executeResumeCommand(state, command, onOutput) {
     '--output-format', 'stream-json',
     '--dangerously-skip-permissions'
   ];
+
+  console.log(`[CLAUDE] Running: claude ${args.map(a => `"${a}"`).join(' ')}`);
+  console.log(`[CLAUDE] Work dir: ${state.workDir}`);
+
+  state.processingCommand = true;
 
   const child = spawn('claude', args, {
     cwd: state.workDir,
@@ -464,18 +406,28 @@ function executeResumeCommand(state, command, onOutput) {
   let buffer = '';
 
   child.stdout.on('data', (data) => {
-    buffer += data.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
+    const str = data.toString();
+    
+    if (outputParser) {
+      // Use structured output parser
+      outputParser.process(str);
+    } else {
+      // Fallback to basic JSON parsing
+      buffer += str;
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
 
-    for (const line of lines) {
-      if (line.trim()) {
-        try {
-          const event = JSON.parse(line);
-          const formatted = formatClaudeEvent(event);
-          if (formatted) onOutput({ type: 'output', data: formatted.data, stream: formatted.stream });
-        } catch {
-          onOutput({ type: 'output', data: line, stream: 'STDOUT' });
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const event = JSON.parse(line);
+            const formatted = formatClaudeEvent(event);
+            if (formatted) {
+              onOutput({ type: 'output', data: formatted.data, stream: formatted.stream });
+            }
+          } catch {
+            onOutput({ type: 'output', data: line, stream: 'STDOUT' });
+          }
         }
       }
     }
@@ -485,7 +437,11 @@ function executeResumeCommand(state, command, onOutput) {
     const text = data.toString().trim();
     if (text) {
       console.log(`[CLAUDE:stderr] ${text}`);
-      onOutput({ type: 'output', data: text, stream: 'STDERR' });
+      if (outputParser) {
+        outputParser.emitStructuredOutput && outputParser.emitStructuredOutput('error', text);
+      } else {
+        onOutput({ type: 'output', data: text, stream: 'STDERR' });
+      }
     }
   });
 
@@ -504,11 +460,10 @@ function executeResumeCommand(state, command, onOutput) {
     state.processingCommand = false;
     onOutput({ type: 'output', data: `\n[Done] Exit code: ${code}\n`, stream: 'STDOUT' });
 
-    // Process queued commands
     if (state.commandQueue.length > 0) {
       const next = state.commandQueue.shift();
       console.log(`[CLAUDE] Processing queued command (${state.commandQueue.length} remaining)`);
-      executeResumeCommand(state, next, onOutput);
+      executeResumeCommand(state, next, onOutput, outputParser);
     }
   });
 
@@ -517,6 +472,66 @@ function executeResumeCommand(state, command, onOutput) {
     state.processingCommand = false;
     onOutput({ type: 'output', data: `Error: Failed to start Claude Code: ${err.message}`, stream: 'STDERR' });
   });
+}
+
+// ============================================================
+// Handle select_session — attach to an existing Claude session
+// ============================================================
+function handleSelectSession(msg, state) {
+  const claudeSessionId = msg.session_id;
+  if (!claudeSessionId) {
+    state.ws.send(JSON.stringify({ type: 'error', message: 'session_id required' }));
+    return;
+  }
+
+  console.log(`[BRIDGE] Selecting Claude session: ${claudeSessionId}`);
+
+  const discovered = discoverSessions();
+  const target = discovered.find(s => s.sessionId === claudeSessionId);
+
+  if (!target) {
+    state.ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }));
+    return;
+  }
+
+  if (!target.hasHistory) {
+    state.ws.send(JSON.stringify({ type: 'error', message: 'Session has no history' }));
+    return;
+  }
+
+  stopWatching(state);
+
+  state.claudeSessionId = claudeSessionId;
+  state.jsonlPath = target.jsonlPath;
+  state.workDir = target.cwd;
+
+  console.log(`[BRIDGE] Loading history from ${target.jsonlPath}`);
+  const history = parseJsonlHistory(target.jsonlPath);
+  console.log(`[BRIDGE] Sending ${history.length} messages to mobile`);
+
+  state.ws.send(JSON.stringify({
+    type: 'sync_history',
+    session_id: claudeSessionId,
+    messages: history
+  }));
+
+  watchJsonlFile(state, (msg) => {
+    if (state.ws && state.ws.readyState === 1) {
+      state.ws.send(JSON.stringify({
+        type: 'new_message',
+        session_id: claudeSessionId,
+        message: msg
+      }));
+    }
+  });
+
+  state.ws.send(JSON.stringify({
+    type: 'status',
+    connected: true,
+    claude_code: state.claudeInfo,
+    session_id: claudeSessionId,
+    message: `Connected to session (${history.length} messages loaded)`
+  }));
 }
 
 // ============================================================
@@ -534,17 +549,31 @@ async function main() {
     connectUrl: null,
     ws: null,
     claudeInfo,
-    claudeSessionId: null,
+    claudeSessionId: opts.sessionId || null,
     jsonlPath: null,
     workDir: opts.workDir,
     fileWatcher: null,
     watchDebounce: null,
     processingCommand: false,
     commandQueue: [],
-    claudeProcess: null,
-    claudeStdin: null,
-    outputBuffer: ''
+    outputParser: null,
+    structuredOutput: opts.structuredOutput && OutputParser !== null
   };
+
+  // Create output parser if enabled
+  if (state.structuredOutput && OutputParser) {
+    state.outputParser = new OutputParser({
+      debug: opts.verbose,
+      onMessage: (msg) => {
+        if (state.ws && state.ws.readyState === 1) {
+          state.ws.send(JSON.stringify(msg));
+        }
+      }
+    });
+    console.log('[BRIDGE] Structured output enabled');
+  } else if (!OutputParser) {
+    console.log('[BRIDGE] output-parser.js not found, using basic mode');
+  }
 
   console.log('');
   console.log('='.repeat(50));
@@ -554,6 +583,9 @@ async function main() {
   console.log(`  Work Dir:  ${opts.workDir}`);
   console.log(`  Device:    ${opts.name}`);
   console.log(`  Mode:      ${opts.mode}`);
+  if (opts.sessionId) {
+    console.log(`  Session:   ${opts.sessionId}`);
+  }
   if (claudeInfo.installed) {
     console.log(`  Claude:    ${claudeInfo.version}`);
   } else {
@@ -568,7 +600,8 @@ async function main() {
   try {
     regRes = await httpRequest(`${opts.server}/bridge/register`, 'POST', {
       device_name: opts.name,
-      work_dir: opts.workDir
+      work_dir: opts.workDir,
+      mode: opts.mode
     });
   } catch (err) {
     console.error(`[BRIDGE] Cannot reach relay server at ${opts.server}: ${err.message}`);
@@ -609,18 +642,27 @@ async function main() {
   console.log('');
 
   // Auto-select: match by cwd, prefer alive processes, then most recent
-  const normalizedWorkDir = path.resolve(opts.workDir);
-  const candidates = discovered
-    .filter(s => s.hasHistory && path.resolve(s.cwd) === normalizedWorkDir);
-  const bestMatch = candidates.find(s => s.isAlive) || candidates[0];
+  if (!state.claudeSessionId) {
+    const normalizedWorkDir = path.resolve(opts.workDir);
+    const candidates = discovered
+      .filter(s => s.hasHistory && path.resolve(s.cwd) === normalizedWorkDir);
+    const bestMatch = candidates.find(s => s.isAlive) || candidates[0];
 
-  if (bestMatch) {
-    state.claudeSessionId = bestMatch.sessionId;
-    state.jsonlPath = bestMatch.jsonlPath;
-    state.workDir = bestMatch.cwd;
-    const status = bestMatch.isAlive ? 'active' : 'closed';
-    console.log(`  Auto-selected session: ${bestMatch.sessionId.substring(0, 12)}... (${status}, ${bestMatch.messageCount} msgs)`);
-    console.log('');
+    if (bestMatch) {
+      state.claudeSessionId = bestMatch.sessionId;
+      state.jsonlPath = bestMatch.jsonlPath;
+      state.workDir = bestMatch.cwd;
+      const status = bestMatch.isAlive ? 'active' : 'closed';
+      console.log(`  Auto-selected session: ${bestMatch.sessionId.substring(0, 12)}... (${status}, ${bestMatch.messageCount} msgs)`);
+      console.log('');
+    }
+  } else {
+    // Use specified session
+    const target = discovered.find(s => s.sessionId === state.claudeSessionId);
+    if (target && target.hasHistory) {
+      state.jsonlPath = target.jsonlPath;
+      state.workDir = target.cwd;
+    }
   }
 
   // Step 4: Connect WebSocket to relay
@@ -649,7 +691,6 @@ async function main() {
           console.log('[BRIDGE] Waiting for mobile to connect...\n');
         } else if (msg.connected && msg.peer === 'mobile') {
           console.log('[BRIDGE] Mobile connected via relay');
-          // Auto-send history if a session is already selected
           if (state.claudeSessionId && state.jsonlPath) {
             const history = parseJsonlHistory(state.jsonlPath);
             console.log(`[BRIDGE] Auto-sending history: ${state.claudeSessionId.substring(0, 12)}... (${history.length} msgs)`);
@@ -658,7 +699,6 @@ async function main() {
               session_id: state.claudeSessionId,
               messages: history
             }));
-            // Start watching for real-time changes
             watchJsonlFile(state, (newMsg) => {
               if (state.ws && state.ws.readyState === 1) {
                 state.ws.send(JSON.stringify({
@@ -683,7 +723,6 @@ async function main() {
 
         console.log(`[BRIDGE] Received command: ${msg.content.substring(0, 80)}...`);
 
-        // Send acknowledgment
         state.ws.send(JSON.stringify({
           type: 'output',
           data: '[Claude Code] Processing...\n',
@@ -700,31 +739,12 @@ async function main() {
           return;
         }
 
-        if (opts.mode === 'persistent') {
-          sendToPersistentProcess(state, msg.content, (event) => {
-            const formatted = formatClaudeEvent(event);
-            if (formatted) {
-              state.ws.send(JSON.stringify({
-                type: 'output',
-                data: formatted.data,
-                stream: formatted.stream
-              }));
-            }
-            if (event.type === 'result') {
-              state.processingCommand = false;
-              state.ws.send(JSON.stringify({ type: 'output', data: '\n[Done]\n', stream: 'STDOUT' }));
-              if (state.commandQueue.length > 0) {
-                const next = state.commandQueue.shift();
-                console.log(`[BRIDGE] Processing queued command (${state.commandQueue.length} remaining)`);
-                sendToPersistentProcess(state, next, () => {});
-              }
-            }
-          });
-        } else {
-          executeResumeCommand(state, msg.content, (output) => {
+        // Execute with structured output support
+        executeResumeCommand(state, msg.content, (output) => {
+          if (state.ws && state.ws.readyState === 1) {
             state.ws.send(JSON.stringify(output));
-          });
-        }
+          }
+        }, state.outputParser);
         break;
 
       case 'select_session':
@@ -732,11 +752,9 @@ async function main() {
         break;
 
       case 'publicKey':
-        // Ignore encryption handshake
         break;
 
       case 'keyRotation':
-        // Respond to key rotation
         if (msg.action === 'initiate') {
           state.ws.send(JSON.stringify({
             type: 'keyRotation',
@@ -763,12 +781,6 @@ async function main() {
   state.ws.on('close', (code, reason) => {
     console.log(`[BRIDGE] WebSocket closed: ${code} ${reason}`);
     stopWatching(state);
-    if (state.claudeProcess) {
-      console.log('[BRIDGE] Shutting down Claude process');
-      state.claudeProcess.kill();
-      state.claudeProcess = null;
-      state.claudeStdin = null;
-    }
     setTimeout(() => process.exit(0), 1000);
   });
 
@@ -780,80 +792,9 @@ async function main() {
   process.on('SIGINT', () => {
     console.log('\n[BRIDGE] Shutting down...');
     stopWatching(state);
-    if (state.claudeProcess) {
-      console.log('[BRIDGE] Shutting down Claude process');
-      state.claudeProcess.kill();
-      state.claudeProcess = null;
-      state.claudeStdin = null;
-    }
     state.ws.close();
     setTimeout(() => process.exit(0), 500);
   });
-}
-
-// ============================================================
-// Handle select_session — attach to an existing Claude session
-// ============================================================
-function handleSelectSession(msg, state) {
-  const claudeSessionId = msg.session_id;
-  if (!claudeSessionId) {
-    state.ws.send(JSON.stringify({ type: 'error', message: 'session_id required' }));
-    return;
-  }
-
-  console.log(`[BRIDGE] Selecting Claude session: ${claudeSessionId}`);
-
-  const discovered = discoverSessions();
-  const target = discovered.find(s => s.sessionId === claudeSessionId);
-
-  if (!target) {
-    state.ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }));
-    return;
-  }
-
-  if (!target.hasHistory) {
-    state.ws.send(JSON.stringify({ type: 'error', message: 'Session has no history' }));
-    return;
-  }
-
-  // Stop previous watcher
-  stopWatching(state);
-
-  // Update state
-  state.claudeSessionId = claudeSessionId;
-  state.jsonlPath = target.jsonlPath;
-  state.workDir = target.cwd;
-
-  // Send history
-  console.log(`[BRIDGE] Loading history from ${target.jsonlPath}`);
-  const history = parseJsonlHistory(target.jsonlPath);
-  console.log(`[BRIDGE] Sending ${history.length} messages to mobile`);
-
-  state.ws.send(JSON.stringify({
-    type: 'sync_history',
-    session_id: claudeSessionId,
-    messages: history
-  }));
-
-  // Start watching for real-time changes
-  watchJsonlFile(state, (msg) => {
-    if (state.ws && state.ws.readyState === 1) {
-      state.ws.send(JSON.stringify({
-        type: 'new_message',
-        session_id: claudeSessionId,
-        message: msg
-      }));
-    }
-  });
-
-  // Confirm selection
-  state.ws.send(JSON.stringify({
-    type: 'status',
-    connected: true,
-    claude_code: state.claudeInfo,
-    session_id: claudeSessionId,
-    message: `Connected to session (${history.length} messages loaded)`
-  }));
 }
 
 main().catch(err => {
