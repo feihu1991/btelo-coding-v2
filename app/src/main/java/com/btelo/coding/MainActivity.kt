@@ -17,18 +17,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Check if we have saved connection info for auto-connect
-        val prefs = getSharedPreferences("btelo_settings", MODE_PRIVATE)
-        val hasWsToken = prefs.getString("ws_token", null) != null
-        val startDestination = if (hasWsToken) Screen.Main.route else Screen.Scan.route
-
         setContent {
             BteloCodingTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation(startDestination = startDestination)
+                    AppNavigation(startDestination = Screen.Scan.route)
                 }
             }
         }

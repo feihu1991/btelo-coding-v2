@@ -25,9 +25,7 @@ data class ScanUiState(
     val sessionId: String? = null,
     val wsToken: String? = null,
     val claudeVersion: String? = null,
-    val remoteSessions: List<RemoteSession> = emptyList(),
-    val showSessionPicker: Boolean = false,
-    val selectedClaudeSessionId: String? = null
+    val remoteSessions: List<RemoteSession> = emptyList()
 )
 
 data class RemoteSession(
@@ -76,7 +74,6 @@ class ScanViewModel @Inject constructor(
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
 
     init {
-        // Check if we have saved connection info
         checkSavedConnection()
     }
 
@@ -94,17 +91,11 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Parse QR code content and connect to server.
-     * Expected format: btelo://IP:PORT/TOKEN
-     * Uses the original IP from QR code to support LAN connections.
-     */
     fun onQrCodeScanned(qrContent: String) {
         if (_uiState.value.isConnecting || _uiState.value.isConnected) return
 
         Logger.i("ScanVM", "QR scanned: $qrContent")
 
-        // Parse btelo://IP:PORT/TOKEN
         val parsed = parseQrCode(qrContent)
         if (parsed == null) {
             _uiState.value = _uiState.value.copy(error = "Invalid QR code format")
@@ -112,23 +103,14 @@ class ScanViewModel @Inject constructor(
         }
 
         val (host, port, token) = parsed
-        // Use the original host from QR code to support LAN/WAN connections
         val serverUrl = "http://$host:$port"
 
         connect(serverUrl, token)
     }
 
-    /**
-     * Connect manually with a URL string.
-     * Supported formats:
-     *   - btelo://IP:PORT/TOKEN
-     *   - http://IP:PORT/TOKEN  (token as path segment)
-     *   - http://IP:PORT         (tries /connect without token, falls back to /status)
-     */
     fun connectManually(url: String) {
         if (_uiState.value.isConnecting || _uiState.value.isConnected) return
 
-        // Try parsing as btelo:// format first
         val parsed = parseQrCode(url)
         if (parsed != null) {
             val (host, port, token) = parsed
@@ -136,20 +118,16 @@ class ScanViewModel @Inject constructor(
             return
         }
 
-        // Try as plain URL like http://IP:PORT or http://IP:PORT/TOKEN
         if (url.startsWith("http://") || url.startsWith("https://")) {
             val cleanUrl = url.trimEnd('/')
-            // Check if there's a token in the path (e.g., http://IP:PORT/TOKEN)
             val pathParts = cleanUrl.substringAfter("://").split("/", limit = 2)
             val hostPort = pathParts[0]
             val pathToken = pathParts.getOrNull(1)
 
             if (pathToken != null && pathToken.isNotBlank()) {
-                // Treat path segment as token
                 val scheme = if (url.startsWith("https://")) "https" else "http"
                 connect("$scheme://$hostPort", pathToken)
             } else {
-                // No token — try connecting anyway (server may allow tokenless access)
                 connect(cleanUrl, null)
             }
             return
@@ -166,8 +144,6 @@ class ScanViewModel @Inject constructor(
                 val url = if (token != null) {
                     "$serverAddress/connect?token=$token"
                 } else {
-                    // No token — try /connect first (server may allow tokenless),
-                    // then fall back to /status
                     "$serverAddress/connect"
                 }
 
@@ -180,7 +156,6 @@ class ScanViewModel @Inject constructor(
                     response.body?.string() ?: ""
                 }
 
-                // Try parsing as connect response
                 val connectResp = try {
                     gson.fromJson(result, ConnectResponse::class.java)
                 } catch (e: Exception) {
@@ -188,33 +163,32 @@ class ScanViewModel @Inject constructor(
                 }
 
                 if (connectResp != null && connectResp.success) {
-                    // Save connection info
                     dataStoreManager.saveServerAddress(serverAddress)
                     dataStoreManager.saveWsToken(connectResp.ws_token)
                     dataStoreManager.saveSessionId(connectResp.session_id)
 
-                    // Create local session so AgentsViewModel can find it
+                    val sessions = connectResp.available_sessions ?: emptyList()
+
+                    // Auto-select session: prefer active, then most recent
+                    val selectedSessionId = autoSelectSession(sessions) ?: connectResp.session_id
+
                     sessionRepository.createSessionWithId(
-                        sessionId = connectResp.session_id,
+                        sessionId = selectedSessionId,
                         name = "Claude Code",
                         tool = "claude"
                     )
-
-                    val sessions = connectResp.available_sessions ?: emptyList()
 
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
                         isConnected = true,
                         serverAddress = serverAddress,
-                        sessionId = connectResp.session_id,
+                        sessionId = selectedSessionId,
                         wsToken = connectResp.ws_token,
                         claudeVersion = connectResp.claude_code?.version,
-                        remoteSessions = sessions,
-                        showSessionPicker = sessions.isNotEmpty()
+                        remoteSessions = sessions
                     )
-                    Logger.i("ScanVM", "Connected to $serverAddress, ${sessions.size} sessions found")
+                    Logger.i("ScanVM", "Connected to $serverAddress, selected session: $selectedSessionId")
                 } else if (token == null) {
-                    // No token and /connect failed — try /status as fallback
                     tryConnectStatus(serverAddress)
                 } else {
                     _uiState.value = _uiState.value.copy(
@@ -233,8 +207,22 @@ class ScanViewModel @Inject constructor(
     }
 
     /**
-     * Fallback: check server status when no token is available.
+     * Auto-select a session from available sessions
+     * Priority: active sessions > most messages > first available
      */
+    private fun autoSelectSession(sessions: List<RemoteSession>): String? {
+        if (sessions.isEmpty()) return null
+
+        // First, try to find an active session with most messages
+        val activeSessions = sessions.filter { it.is_alive }
+        if (activeSessions.isNotEmpty()) {
+            return activeSessions.maxByOrNull { it.message_count }?.session_id
+        }
+
+        // Fallback: most messages overall
+        return sessions.maxByOrNull { it.message_count }?.session_id
+    }
+
     private suspend fun tryConnectStatus(serverAddress: String) {
         try {
             val result = withContext(Dispatchers.IO) {
@@ -246,7 +234,6 @@ class ScanViewModel @Inject constructor(
                 response.body?.string() ?: ""
             }
 
-            // Parse status response
             val statusResp = try {
                 gson.fromJson(result, com.google.gson.JsonObject::class.java)
             } catch (e: Exception) {
@@ -256,7 +243,7 @@ class ScanViewModel @Inject constructor(
             if (statusResp != null && statusResp.has("success") && statusResp.get("success").asBoolean) {
                 _uiState.value = _uiState.value.copy(
                     isConnecting = false,
-                    error = "Server is reachable. Scan QR code or enter a connection token to continue."
+                    error = "Server is reachable. Scan QR code or enter a connection token."
                 )
             } else {
                 _uiState.value = _uiState.value.copy(
@@ -273,7 +260,6 @@ class ScanViewModel @Inject constructor(
     }
 
     private fun parseQrCode(content: String): Triple<String, Int, String>? {
-        // Format: btelo://IP:PORT/TOKEN
         if (!content.startsWith("btelo://")) return null
 
         val withoutProtocol = content.removePrefix("btelo://")
@@ -294,64 +280,6 @@ class ScanViewModel @Inject constructor(
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
-    }
-
-    /**
-     * Fetch available Claude Code sessions from the server
-     */
-    fun fetchRemoteSessions() {
-        val serverAddress = _uiState.value.serverAddress ?: return
-
-        viewModelScope.launch {
-            try {
-                val url = "$serverAddress/sessions"
-                val result = withContext(Dispatchers.IO) {
-                    val request = Request.Builder()
-                        .url(url)
-                        .get()
-                        .build()
-                    val response = okHttpClient.newCall(request).execute()
-                    response.body?.string() ?: ""
-                }
-
-                val sessionsResponse = gson.fromJson(result, SessionsResponse::class.java)
-                if (sessionsResponse.success) {
-                    _uiState.value = _uiState.value.copy(
-                        remoteSessions = sessionsResponse.sessions,
-                        showSessionPicker = sessionsResponse.sessions.isNotEmpty()
-                    )
-                }
-            } catch (e: Exception) {
-                Logger.e("ScanVM", "Failed to fetch sessions", e)
-            }
-        }
-    }
-
-    /**
-     * Select a Claude Code session to connect to
-     */
-    fun selectSession(sessionId: String) {
-        _uiState.value = _uiState.value.copy(
-            selectedClaudeSessionId = sessionId,
-            showSessionPicker = false
-        )
-        viewModelScope.launch {
-            dataStoreManager.saveClaudeSessionId(sessionId)
-            // Create local session so AgentsViewModel can find it
-            sessionRepository.createSessionWithId(
-                sessionId = sessionId,
-                name = "Claude Code",
-                tool = "claude"
-            )
-        }
-        Logger.i("ScanVM", "Selected Claude session: $sessionId")
-    }
-
-    /**
-     * Dismiss the session picker
-     */
-    fun dismissSessionPicker() {
-        _uiState.value = _uiState.value.copy(showSessionPicker = false)
     }
 
     fun disconnect() {

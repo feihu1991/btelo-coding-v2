@@ -2,6 +2,7 @@ package com.btelo.coding.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.data.remote.websocket.OutputType
 import com.btelo.coding.domain.model.Message
@@ -33,25 +34,18 @@ data class ChatUiState(
     val showConnectionDetails: Boolean = false,
     val streamingContent: String = "",
     val isStreaming: Boolean = false,
-    val sessionName: String = "Claude",
+    val sessionName: String = "Claude Code",
     
-    // BTELO Coding v2: Structured output state
+    // Structured output state
     val structuredOutputBuffer: StructuredOutputBuffer = StructuredOutputBuffer()
 )
 
-/**
- * Buffer for accumulating structured output messages
- * Groups related structured messages together
- */
 data class StructuredOutputBuffer(
     val messageId: String = "",
     val parts: List<StructuredPart> = emptyList(),
     val isComplete: Boolean = false
 )
 
-/**
- * A single part of structured output
- */
 data class StructuredPart(
     val outputType: OutputType,
     val content: String,
@@ -62,21 +56,20 @@ data class StructuredPart(
 class ChatViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
     private val sessionRepository: SessionRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val dataStoreManager: DataStoreManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private var sessionId: String = ""
-
     private val coroutineJobs = mutableListOf<Job>()
 
     fun setSessionId(id: String) {
         sessionId = id
         val job = viewModelScope.launch {
             val serverAddress = authRepository.getServerAddress().firstOrNull() ?: ""
-            // Try ws_token first (new flow), fallback to auth_token (old flow)
             val wsToken = authRepository.getWsTokenSync()
             val authToken = authRepository.getTokenSync()
             val token = wsToken ?: authToken ?: ""
@@ -104,7 +97,6 @@ class ChatViewModel @Inject constructor(
     private fun observeOutput() {
         val job = viewModelScope.launch {
             messageRepository.observeOutput(sessionId).collect { message ->
-                // Accumulate streaming content instead of replacing
                 val current = _uiState.value.streamingContent
                 val newContent = if (current.isEmpty()) {
                     message.content
@@ -116,7 +108,6 @@ class ChatViewModel @Inject constructor(
                     isStreaming = true
                 )
 
-                // Auto-clear streaming after 2 seconds of inactivity
                 delay(2000)
                 if (_uiState.value.isStreaming && _uiState.value.streamingContent == newContent) {
                     _uiState.value = _uiState.value.copy(
@@ -128,11 +119,7 @@ class ChatViewModel @Inject constructor(
         }
         coroutineJobs.add(job)
     }
-    
-    /**
-     * Observe structured output messages (BTELO Coding v2)
-     * These are parsed Claude Code stream-json outputs with type classification
-     */
+
     private fun observeStructuredOutput() {
         val job = viewModelScope.launch {
             messageRepository.observeStructuredOutput(sessionId).collect { structuredMessage ->
@@ -141,11 +128,7 @@ class ChatViewModel @Inject constructor(
         }
         coroutineJobs.add(job)
     }
-    
-    /**
-     * Process a structured output message
-     * Groups related parts into a single message for display
-     */
+
     private fun processStructuredOutput(structuredMsg: Message) {
         val currentBuffer = _uiState.value.structuredOutputBuffer
         val newPart = StructuredPart(
@@ -164,30 +147,25 @@ class ChatViewModel @Inject constructor(
             metadata = structuredMsg.metadata
         )
         
-        // Check if this completes a message (claude_response after tool_call)
         val isComplete = newPart.outputType == OutputType.CLAUDE_RESPONSE && 
                          !currentBuffer.messageId.isEmpty()
         
         if (isComplete) {
-            // Flush buffer to messages
             val finalMessage = buildStructuredMessage(currentBuffer.copy(
                 parts = currentBuffer.parts + newPart,
                 isComplete = true
             ))
             
-            // Save to repository
             viewModelScope.launch {
                 messageRepository.saveMessage(finalMessage)
             }
             
-            // Clear buffer
             _uiState.value = _uiState.value.copy(
                 structuredOutputBuffer = StructuredOutputBuffer(),
                 streamingContent = "",
                 isStreaming = false
             )
         } else {
-            // Add to buffer
             val newMessageId = if (currentBuffer.messageId.isEmpty()) {
                 "struct-${System.currentTimeMillis()}"
             } else {
@@ -205,27 +183,15 @@ class ChatViewModel @Inject constructor(
             )
         }
     }
-    
-    /**
-     * Build a single Message from structured parts
-     */
+
     private fun buildStructuredMessage(buffer: StructuredOutputBuffer): Message {
         val parts = buffer.parts
-        
-        // Determine primary output type
         val primaryType = parts.firstOrNull()?.outputType ?: OutputType.CLAUDE_RESPONSE
-        
-        // Concatenate content
         val content = parts.joinToString("") { it.content }
-        
-        // Get metadata from relevant parts
         val toolCallPart = parts.find { it.outputType == OutputType.TOOL_CALL }
         val metadata = toolCallPart?.metadata ?: MessageMetadata()
-        
-        // Extract thinking content
         val thinkingPart = parts.find { it.outputType == OutputType.THINKING }
         
-        // Determine domain output type
         val domainOutputType = when (primaryType) {
             OutputType.CLAUDE_RESPONSE -> DomainOutputType.CLAUDE_RESPONSE
             OutputType.TOOL_CALL -> DomainOutputType.TOOL_CALL
@@ -275,7 +241,6 @@ class ChatViewModel @Inject constructor(
                     lastConnectedTime = lastConnectedTime
                 )
 
-                // Sync connection state to Room DB so SessionListScreen can display it
                 if (sessionId.isNotBlank()) {
                     sessionRepository.updateSessionConnection(sessionId, isConnected)
                 }
@@ -309,7 +274,7 @@ class ChatViewModel @Inject constructor(
                 inputText = "",
                 streamingContent = "",
                 isStreaming = true,
-                structuredOutputBuffer = StructuredOutputBuffer() // Clear buffer
+                structuredOutputBuffer = StructuredOutputBuffer()
             )
 
             messageRepository.sendMessage(sessionId, content)
@@ -326,12 +291,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Called when streaming output is complete (e.g., stream end signal or timeout).
-     * Flushes accumulated streaming content into the message list.
-     */
     fun onStreamComplete() {
-        // Flush any remaining structured output buffer
         val buffer = _uiState.value.structuredOutputBuffer
         if (buffer.parts.isNotEmpty() && !buffer.isComplete) {
             val finalMessage = buildStructuredMessage(buffer.copy(isComplete = true))
@@ -355,6 +315,19 @@ class ChatViewModel @Inject constructor(
 
     fun dismissConnectionDetails() {
         _uiState.value = _uiState.value.copy(showConnectionDetails = false)
+    }
+
+    fun disconnect() {
+        viewModelScope.launch {
+            messageRepository.disconnect(sessionId)
+            dataStoreManager.clearConnection()
+            coroutineJobs.forEach { job ->
+                if (job.isActive) {
+                    job.cancel()
+                }
+            }
+            coroutineJobs.clear()
+        }
     }
 
     override fun onCleared() {

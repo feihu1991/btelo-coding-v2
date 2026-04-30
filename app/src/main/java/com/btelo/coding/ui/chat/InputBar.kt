@@ -2,6 +2,7 @@ package com.btelo.coding.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,10 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -28,6 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.btelo.coding.ui.theme.BorderSubtle
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
@@ -41,32 +41,34 @@ fun InputBar(
     text: String,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
-    onVoiceClick: () -> Unit,
     onAttachClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val hasText = text.isNotBlank()
-    val inputShape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
+    val inputShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(InputSurface, inputShape)
-            .border(1.dp, BorderSubtle, inputShape)
+            .border(1.dp, BorderSubtle.copy(alpha = 0.3f), inputShape)
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Plus/Attach button
-        IconButton(onClick = onAttachClick, modifier = Modifier.size(40.dp)) {
+        // Attachment button (left)
+        IconButton(
+            onClick = onAttachClick,
+            modifier = Modifier.size(44.dp)
+        ) {
             Icon(
                 Icons.Default.Add,
-                contentDescription = "Add",
+                contentDescription = "Attach",
                 tint = TextSecondary,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(26.dp)
             )
         }
 
-        Spacer(modifier = Modifier.width(2.dp))
+        Spacer(modifier = Modifier.width(4.dp))
 
         // Text input
         TextField(
@@ -78,36 +80,27 @@ fun InputBar(
                 .background(InputSurface, RoundedCornerShape(20.dp)),
             placeholder = {
                 Text(
-                    "Message, / commands, @ history, $ files",
-                    color = TextSecondary.copy(alpha = 0.5f)
+                    "输入消息...",
+                    color = TextSecondary.copy(alpha = 0.5f),
+                    fontSize = 15.sp
                 )
             },
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = InputSurface,
-                unfocusedContainerColor = InputSurface,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
                 focusedTextColor = TextPrimary,
                 unfocusedTextColor = TextPrimary,
                 cursorColor = BubbleGradientStart
             ),
-            maxLines = 3,
-            textStyle = MaterialTheme.typography.bodyMedium
+            maxLines = 4,
+            textStyle = TextStyle(fontSize = 15.sp)
         )
 
         Spacer(modifier = Modifier.width(4.dp))
 
-        // Mic button
-        IconButton(onClick = onVoiceClick, modifier = Modifier.size(40.dp)) {
-            Icon(
-                Icons.Default.Mic,
-                contentDescription = "Voice",
-                tint = TextSecondary,
-                modifier = Modifier.size(22.dp)
-            )
-        }
-
-        // Send button - blue/purple gradient circle when text is entered
+        // Send button
         val sendBg = if (hasText) {
             Brush.linearGradient(listOf(BubbleGradientStart, BubbleGradientEnd))
         } else {
@@ -116,20 +109,25 @@ fun InputBar(
 
         val sendIconTint = if (hasText) TextOnBubble else TextSecondary
 
-        IconButton(
-            onClick = onSend,
-            enabled = hasText,
+        Box(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(brush = sendBg)
+                .background(brush = sendBg),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Send",
-                tint = sendIconTint,
-                modifier = Modifier.size(20.dp)
-            )
+            IconButton(
+                onClick = onSend,
+                enabled = hasText,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Send",
+                    tint = sendIconTint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
