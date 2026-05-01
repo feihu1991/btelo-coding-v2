@@ -1,600 +1,172 @@
-#!/usr/bin/env node
-
 /**
- * BTELO Coding Output Parser
+ * BTELO Coding - Stream JSON Output Parser
  * 
- * Parses Claude Code's stream-json output into structured messages.
+ * Parses Claude Code's --output-format stream-json output into structured messages.
+ * No ANSI parsing needed — Claude Code handles the formatting for us.
  * 
- * Claude Code stream-json format reference:
- * - { "type": "assistant", "message": { "content": [...] } }
- * - { "type": "tool_call", "id": "...", "name": "...", "input": {...} }
- * - { "type": "tool_result", "tool_use_id": "...", "content": "..." }
- * - { "type": "result", "content": "..." }
- * - { "type": "text", "text": "..." }
- * - { "type": "subtype", "subtype": "thinking", "thinking": "..." }
- * - { "type": "error", "error": "...", "subtype": "..." }
- * 
- * Output types:
- * - claude_response: Regular text output from Claude
- * - tool_call: Tool usage request (Bash, Read, Edit, etc.)
- * - file_op: File operation details
- * - thinking: Thinking/thought process
- * - error: Error message
- * - system: System message
+ * Stream JSON event types from Claude Code:
+ * - {type: "assistant", message: {content: [{type: "text", text: "..."}]}}
+ * - {type: "assistant", message: {content: [{type: "tool_use", ...}]}}
+ * - {type: "assistant", message: {content: [{type: "tool_result", ...}]}}
+ * - {type: "result", result: "..."}
+ * - {type: "text", text: "..."}
+ * - {type: "stderr", text: "..."}
+ * - {type: "error", text: "..."}
  */
 
-'use strict';
-
-// ============================================================
-// Output Types Enum
-// ============================================================
 const OutputType = {
   CLAUDE_RESPONSE: 'claude_response',
   TOOL_CALL: 'tool_call',
+  TOOL_RESULT: 'tool_result',
   FILE_OP: 'file_op',
   THINKING: 'thinking',
   ERROR: 'error',
-  SYSTEM: 'system'
+  SYSTEM: 'system',
+  RAW: 'raw'
 };
 
-// ============================================================
-// Tool name mappings
-// ============================================================
-const ToolNames = {
-  'bash': 'Bash',
-  'read': 'Read',
-  'edit': 'Edit',
-  'write': 'Write',
-  'grepr': 'Grep',
-  'glob': 'Glob',
-  'lsp': 'LSP',
-  'webfetch': 'WebFetch',
-  'mcp__taskagent__exec': 'TaskAgent',
-  'mcp__filesystem__read_file': 'FileRead',
-  'mcp__filesystem__write_file': 'FileWrite',
-  'mcp__filesystem__list_directory': 'ListDir',
-  'mcp__cli__execute_command': 'CLI'
-};
-
-// ============================================================
-// File operation patterns
-// ============================================================
-const FileOpPatterns = [
-  /^(Read|read)\s+['"]?([^\s'"]+)['"]?/,
-  /^(Edit|edit)\s+['"]?([^\s'"]+)['"]?/,
-  /^(Write|write)\s+['"]?([^\s'"]+)['"]?/,
-  /^(Create|create)\s+['"]?([^\s'"]+)['"]?/,
-  /^(Delete|delete)\s+['"]?([^\s'"]+)['"]?/,
-  /^(Move|move)\s+['"]?([^\s'"]+)['"]?/,
-  /^(Copy|copy)\s+['"]?([^\s'"]+)['"]?/,
-  /^(Rename|rename)\s+['"]?([^\s'"]+)['"]?/,
-  /^(Edit|edit)\s+['"]?([^\s'"]+)['"]?.*\(line\s+\d+\)/i
-];
-
 /**
- * Detect if content indicates a file operation
+ * Parse a single stream-json line into structured output
+ * @param {string} line - A single line from Claude Code stream-json output
+ * @returns {object|null} - Parsed output or null if not parseable
  */
-function detectFileOp(content, toolName) {
-  // Common file operations
-  const readPatterns = ['Reading', 'read', 'Opening', 'open'];
-  const writePatterns = ['Writing', 'write', 'Creating', 'create', 'Saving', 'save'];
-  const editPatterns = ['Editing', 'edit', 'Modifying', 'modify', 'Updating', 'update'];
-  const deletePatterns = ['Deleting', 'delete', 'Removing', 'remove'];
-  
-  const lowerContent = content.toLowerCase();
-  const lowerTool = toolName.toLowerCase();
-  
-  // Tool-based detection
-  if (['read', 'write', 'edit', 'glob', 'lsp'].includes(lowerTool)) {
+function parseStreamJsonLine(line) {
+  if (!line || !line.trim()) return null;
+
+  try {
+    const event = JSON.parse(line);
+    return formatStreamEvent(event);
+  } catch {
+    // Not JSON — treat as raw text
     return {
-      detected: true,
-      operation: lowerTool === 'read' ? 'read' : 
-                 lowerTool === 'write' ? 'write' :
-                 lowerTool === 'edit' ? 'edit' : 'other',
-      filePath: extractFilePath(content)
+      type: OutputType.RAW,
+      content: line,
+      metadata: {},
+      timestamp: new Date().toISOString()
     };
   }
-  
-  // Pattern-based detection
-  for (const pattern of readPatterns) {
-    if (lowerContent.includes(pattern.toLowerCase())) {
-      return { detected: true, operation: 'read', filePath: extractFilePath(content) };
-    }
-  }
-  for (const pattern of writePatterns) {
-    if (lowerContent.includes(pattern.toLowerCase())) {
-      return { detected: true, operation: 'write', filePath: extractFilePath(content) };
-    }
-  }
-  for (const pattern of editPatterns) {
-    if (lowerContent.includes(pattern.toLowerCase())) {
-      return { detected: true, operation: 'edit', filePath: extractFilePath(content) };
-    }
-  }
-  for (const pattern of deletePatterns) {
-    if (lowerContent.includes(pattern.toLowerCase())) {
-      return { detected: true, operation: 'delete', filePath: extractFilePath(content) };
-    }
-  }
-  
-  return { detected: false };
 }
 
 /**
- * Extract file path from content
+ * Format a parsed stream event into structured output
  */
-function extractFilePath(content) {
-  // Match common path patterns
-  const patterns = [
-    /['"]([^'"]+\.[a-zA-Z0-9]+)['"]/g,           // Quoted paths
-    /\/([\w\-\.\/]+\.[a-zA-Z0-9]+)/g,            // Absolute paths
-    /([\w\-\.]+\.[a-zA-Z0-9]+)/g                  // Simple filenames
-  ];
-  
-  for (const pattern of patterns) {
-    const matches = content.match(pattern);
-    if (matches && matches.length > 0) {
-      // Return the most likely file path (usually the longest match)
-      return matches.sort((a, b) => b.length - a.length)[0];
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Parse thinking content from event
- */
-function parseThinking(event) {
-  // Claude Code uses "subtype": "thinking" with "thinking" field
-  if (event.subtype === 'thinking' && event.thinking) {
-    return {
-      content: event.thinking,
-      isCollapsed: true
-    };
-  }
-  
-  // Also check for common thinking indicators in text
-  if (event.type === 'text' && event.text) {
-    const thinkingPatterns = [
-      /^(Let me|I need to|First|Let me think|Hmm|Well,)/i,
-      /thinking/i
-    ];
-    
-    for (const pattern of thinkingPatterns) {
-      if (pattern.test(event.text)) {
-        return {
-          content: event.text,
-          isCollapsed: true
-        };
-      }
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Format tool call metadata
- */
-function formatToolMetadata(event) {
-  const toolName = event.name || event.tool || 'unknown';
-  const displayName = ToolNames[toolName] || toolName;
-  
-  let parameters = {};
-  if (event.input) {
-    parameters = event.input;
-  } else if (event.parameters) {
-    parameters = event.parameters;
-  }
-  
-  // Extract command for Bash tool
-  let command = null;
-  if (toolName === 'bash' && parameters.command) {
-    command = parameters.command;
-  } else if (toolName === 'bash' && parameters.cmd) {
-    command = parameters.cmd;
-  }
-  
-  // Extract file path for file operations
-  let filePath = null;
-  if (parameters.file || parameters.path || parameters.target) {
-    filePath = parameters.file || parameters.path || parameters.target;
-  }
-  
-  return {
-    toolId: event.id || event.tool_use_id || generateId(),
-    toolName: displayName,
-    toolType: toolName,
-    parameters,
-    command,
-    filePath,
-    rawInput: event.input || event.parameters || {}
-  };
-}
-
-/**
- * Generate a simple unique ID
- */
-function generateId() {
-  return 'struct-' + Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 5);
-}
-
-/**
- * Create structured output message
- */
-function createStructuredOutput(outputType, content, metadata = {}) {
-  return {
-    type: 'structured_output',
-    output_type: outputType,
-    content: content,
-    metadata: {
-      ...metadata,
-      parserVersion: '1.0.0'
-    },
-    timestamp: new Date().toISOString()
-  };
-}
-
-// ============================================================
-// Main Parser Class
-// ============================================================
-class OutputParser {
-  constructor(options = {}) {
-    this.buffer = '';
-    this.pendingThinking = null;
-    this.pendingToolCall = null;
-    this.messageBuffer = [];
-    this.onMessage = options.onMessage || (() => {});
-    this.debug = options.debug || false;
-  }
-  
-  /**
-   * Process raw input data (from PTY or CLI stdout)
-   */
-  process(data) {
-    this.buffer += data.toString();
-    const lines = this.buffer.split('\n');
-    this.buffer = lines.pop() || '';
-    
-    for (const line of lines) {
-      if (line.trim()) {
-        this.processLine(line.trim());
-      }
-    }
-  }
-  
-  /**
-   * Process a single line of output
-   */
-  processLine(line) {
-    // Try to parse as JSON
-    try {
-      const event = JSON.parse(line);
-      this.processEvent(event);
-    } catch {
-      // Not JSON - treat as raw text output
-      if (this.debug) {
-        console.log('[PARSER] Raw text:', line.substring(0, 100));
+function formatStreamEvent(event) {
+  switch (event.type) {
+    case 'assistant': {
+      if (!event.message || !event.message.content) return null;
+      const content = event.message.content;
+      
+      if (!Array.isArray(content)) return null;
+      
+      const results = [];
+      
+      for (const block of content) {
+        switch (block.type) {
+          case 'text':
+            results.push({
+              type: OutputType.CLAUDE_RESPONSE,
+              content: block.text || '',
+              metadata: {},
+              timestamp: new Date().toISOString()
+            });
+            break;
+            
+          case 'tool_use':
+            results.push({
+              type: OutputType.TOOL_CALL,
+              content: block.name || 'unknown_tool',
+              metadata: {
+                toolId: block.id,
+                toolName: block.name,
+                toolType: block.type,
+                parameters: block.input || {}
+              },
+              timestamp: new Date().toISOString()
+            });
+            break;
+            
+          case 'thinking':
+            results.push({
+              type: OutputType.THINKING,
+              content: block.thinking || '',
+              metadata: {},
+              timestamp: new Date().toISOString()
+            });
+            break;
+        }
       }
       
-      // Check if it's an error
-      if (line.toLowerCase().includes('error') || line.startsWith('!')) {
-        this.emitStructuredOutput(OutputType.ERROR, line);
-      } else if (line.startsWith('[System]') || line.startsWith('[system]')) {
-        this.emitStructuredOutput(OutputType.SYSTEM, line.replace(/^\[System\]\s*/i, ''));
+      // Return first result if only one, otherwise return array
+      if (results.length === 0) return null;
+      if (results.length === 1) return results[0];
+      return results;
+    }
+    
+    case 'result':
+      return {
+        type: OutputType.CLAUDE_RESPONSE,
+        content: event.result || '',
+        metadata: { isFinal: true },
+        timestamp: new Date().toISOString()
+      };
+      
+    case 'text':
+      return {
+        type: OutputType.CLAUDE_RESPONSE,
+        content: event.text || '',
+        metadata: {},
+        timestamp: new Date().toISOString()
+      };
+      
+    case 'stderr':
+      return {
+        type: OutputType.ERROR,
+        content: event.text || '',
+        metadata: { stream: 'stderr' },
+        timestamp: new Date().toISOString()
+      };
+      
+    case 'error':
+      return {
+        type: OutputType.ERROR,
+        content: event.text || JSON.stringify(event),
+        metadata: { stream: 'error' },
+        timestamp: new Date().toISOString()
+      };
+      
+    default:
+      return null;
+  }
+}
+
+/**
+ * Parse a buffer of stream-json output, handling partial lines
+ * @param {string} buffer - Accumulated buffer
+ * @returns {{messages: array, remaining: string}} - Parsed messages and remaining buffer
+ */
+function parseStreamBuffer(buffer) {
+  const lines = buffer.split('\n');
+  const remaining = lines.pop(); // Last line might be incomplete
+  
+  const messages = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const parsed = parseStreamJsonLine(line);
+    if (parsed) {
+      if (Array.isArray(parsed)) {
+        messages.push(...parsed);
       } else {
-        // Treat as regular response
-        this.emitStructuredOutput(OutputType.CLAUDE_RESPONSE, line);
+        messages.push(parsed);
       }
     }
   }
   
-  /**
-   * Process a parsed Claude Code event
-   */
-  processEvent(event) {
-    if (this.debug) {
-      console.log('[PARSER] Event type:', event.type, JSON.stringify(event).substring(0, 100));
-    }
-    
-    switch (event.type) {
-      case 'assistant':
-        this.handleAssistantEvent(event);
-        break;
-        
-      case 'tool_call':
-        this.handleToolCallEvent(event);
-        break;
-        
-      case 'tool_use':
-        // Alias for tool_call
-        this.handleToolCallEvent(event);
-        break;
-        
-      case 'tool_result':
-        this.handleToolResultEvent(event);
-        break;
-        
-      case 'result':
-        // Final result after tool execution
-        if (event.content) {
-          this.emitStructuredOutput(OutputType.CLAUDE_RESPONSE, event.content);
-        }
-        break;
-        
-      case 'text':
-        if (event.text) {
-          // Check for thinking
-          const thinking = parseThinking(event);
-          if (thinking) {
-            this.emitStructuredOutput(OutputType.THINKING, thinking.content, {
-              isCollapsed: thinking.isCollapsed
-            });
-          } else {
-            this.emitStructuredOutput(OutputType.CLAUDE_RESPONSE, event.text);
-          }
-        }
-        break;
-        
-      case 'subtype':
-        if (event.subtype === 'thinking' && event.thinking) {
-          this.emitStructuredOutput(OutputType.THINKING, event.thinking, {
-            isCollapsed: true
-          });
-        } else if (event.subtype === 'system' && event.content) {
-          this.emitStructuredOutput(OutputType.SYSTEM, event.content);
-        }
-        break;
-        
-      case 'error':
-        this.handleErrorEvent(event);
-        break;
-        
-      case 'stderr':
-        if (event.text) {
-          this.emitStructuredOutput(OutputType.ERROR, event.text);
-        }
-        break;
-        
-      case 'user':
-        // User message - ignore in output parsing
-        break;
-        
-      case 'message':
-        // Container message type
-        if (event.message && event.message.content) {
-          const content = event.message.content;
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              if (block.type === 'text' && block.text) {
-                this.emitStructuredOutput(OutputType.CLAUDE_RESPONSE, block.text);
-              } else if (block.type === 'tool_use') {
-                this.handleToolUseBlock(block);
-              }
-            }
-          }
-        }
-        break;
-        
-      default:
-        if (this.debug) {
-          console.log('[PARSER] Unknown event type:', event.type);
-        }
-    }
-  }
-  
-  /**
-   * Handle assistant message event
-   */
-  handleAssistantEvent(event) {
-    if (!event.message || !event.message.content) return;
-    
-    const content = event.message.content;
-    if (!Array.isArray(content)) return;
-    
-    for (const block of content) {
-      if (block.type === 'text' && block.text) {
-        // Check for thinking in text
-        const thinking = parseThinking({ type: 'text', text: block.text });
-        if (thinking) {
-          this.emitStructuredOutput(OutputType.THINKING, thinking.content, {
-            isCollapsed: thinking.isCollapsed
-          });
-        } else {
-          this.emitStructuredOutput(OutputType.CLAUDE_RESPONSE, block.text);
-        }
-      } else if (block.type === 'tool_use') {
-        this.handleToolUseBlock(block);
-      }
-    }
-  }
-  
-  /**
-   * Handle tool_use block from assistant message
-   */
-  handleToolUseBlock(block) {
-    const toolName = block.name || 'unknown';
-    const displayName = ToolNames[toolName] || toolName;
-    
-    // Extract relevant parameters based on tool type
-    let summary = '';
-    let filePath = null;
-    let command = null;
-    let parameters = block.input || {};
-    
-    if (toolName === 'bash') {
-      command = parameters.command || parameters.cmd || '';
-      summary = `Running: ${command.substring(0, 60)}${command.length > 60 ? '...' : ''}`;
-      filePath = extractFilePath(command);
-    } else if (toolName === 'read') {
-      filePath = parameters.file_path || parameters.path || parameters.file;
-      summary = `Reading: ${filePath || 'file'}`;
-    } else if (toolName === 'write') {
-      filePath = parameters.file_path || parameters.path || parameters.file;
-      summary = `Writing: ${filePath || 'file'}`;
-    } else if (toolName === 'edit') {
-      filePath = parameters.file_path || parameters.path || parameters.file;
-      const editType = parameters.edit_type || parameters.type || 'modification';
-      summary = `Editing (${editType}): ${filePath || 'file'}`;
-    } else if (toolName === 'glob') {
-      const pattern = parameters.pattern || parameters.glob || '*';
-      summary = `Finding: ${pattern}`;
-    } else if (toolName === 'grepr') {
-      const query = parameters.query || parameters.search || parameters.text || '';
-      const file = parameters.file || parameters.path || 'all files';
-      summary = `Searching "${query}" in ${file}`;
-    } else {
-      summary = `Using: ${displayName}`;
-    }
-    
-    // Detect file operations
-    const fileOp = detectFileOp(summary, toolName);
-    
-    this.emitStructuredOutput(OutputType.TOOL_CALL, summary, {
-      toolId: block.id || generateId(),
-      toolName: displayName,
-      toolType: toolName,
-      filePath: filePath,
-      command: command,
-      parameters: parameters,
-      isFileOp: fileOp.detected,
-      fileOpType: fileOp.operation
-    });
-  }
-  
-  /**
-   * Handle tool_call event (from stream-json)
-   */
-  handleToolCallEvent(event) {
-    const metadata = formatToolMetadata(event);
-    const toolName = metadata.toolName;
-    
-    // Detect file operations
-    let summary = '';
-    if (metadata.command) {
-      summary = `Running: ${metadata.command.substring(0, 60)}${metadata.command.length > 60 ? '...' : ''}`;
-    } else if (metadata.filePath) {
-      summary = `Using ${toolName}: ${metadata.filePath}`;
-    } else {
-      summary = `Using ${toolName}`;
-    }
-    
-    const fileOp = detectFileOp(summary, toolName);
-    
-    this.emitStructuredOutput(OutputType.TOOL_CALL, summary, {
-      ...metadata,
-      isFileOp: fileOp.detected,
-      fileOpType: fileOp.operation
-    });
-  }
-  
-  /**
-   * Handle tool_result event
-   */
-  handleToolResultEvent(event) {
-    const toolUseId = event.tool_use_id || event.toolCallId;
-    const content = event.content || '';
-    
-    // Truncate long outputs
-    let displayContent = content;
-    if (typeof content === 'string' && content.length > 500) {
-      displayContent = content.substring(0, 500) + '\n... (truncated)';
-    } else if (typeof content === 'object') {
-      displayContent = JSON.stringify(content, null, 2);
-      if (displayContent.length > 500) {
-        displayContent = displayContent.substring(0, 500) + '\n... (truncated)';
-      }
-    }
-    
-    this.emitStructuredOutput(OutputType.CLAUDE_RESPONSE, displayContent, {
-      toolUseId: toolUseId,
-      isToolResult: true,
-      originalLength: typeof content === 'string' ? content.length : 
-                      typeof content === 'object' ? JSON.stringify(content).length : 0
-    });
-  }
-  
-  /**
-   * Handle error event
-   */
-  handleErrorEvent(event) {
-    const errorMsg = event.error || event.message || JSON.stringify(event);
-    const subtype = event.subtype || '';
-    
-    let metadata = { subtype };
-    if (event.code) metadata.code = event.code;
-    if (event.details) metadata.details = event.details;
-    
-    this.emitStructuredOutput(OutputType.ERROR, errorMsg, metadata);
-  }
-  
-  /**
-   * Emit structured output message
-   */
-  emitStructuredOutput(outputType, content, metadata = {}) {
-    const message = createStructuredOutput(outputType, content, metadata);
-    this.onMessage(message);
-    return message;
-  }
-  
-  /**
-   * Flush any remaining buffered content
-   */
-  flush() {
-    if (this.buffer.trim()) {
-      this.processLine(this.buffer.trim());
-      this.buffer = '';
-    }
-  }
-  
-  /**
-   * Reset parser state
-   */
-  reset() {
-    this.buffer = '';
-    this.pendingThinking = null;
-    this.pendingToolCall = null;
-    this.messageBuffer = [];
-  }
+  return { messages, remaining };
 }
 
-// ============================================================
-// CLI Interface (for testing)
-// ============================================================
-if (require.main === module) {
-  const parser = new OutputParser({ debug: true });
-  
-  console.log('BTELO Output Parser - Interactive Mode');
-  console.log('Paste Claude Code stream-json output or raw text...');
-  console.log('Press Ctrl+D to exit\n');
-  
-  process.stdin.setEncoding('utf8');
-  
-  process.stdin.on('data', (chunk) => {
-    parser.process(chunk);
-  });
-  
-  parser.onMessage = (msg) => {
-    console.log('\n[STRUCTURED]', JSON.stringify(msg, null, 2));
-  };
-  
-  process.stdin.on('end', () => {
-    parser.flush();
-    process.exit(0);
-  });
-}
-
-// ============================================================
-// Exports
-// ============================================================
 module.exports = {
-  OutputParser,
   OutputType,
-  ToolNames,
-  createStructuredOutput,
-  detectFileOp,
-  extractFilePath,
-  parseThinking,
-  formatToolMetadata
+  parseStreamJsonLine,
+  parseStreamBuffer,
+  formatStreamEvent
 };

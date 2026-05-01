@@ -357,6 +357,53 @@ app.get('/restart', (req, res) => {
   }, 500);
 });
 
+
+// ============================================================
+// Hook Callback API — receives events from btelo-plugin
+// ============================================================
+
+app.post('/api/hooks/callback', (req, res) => {
+  const { event, session_id, ...data } = req.body;
+
+  if (!event) {
+    return res.status(400).json({ error: 'event field required' });
+  }
+
+  console.log(`[HOOK] Event: ${event}, Session: ${session_id || 'unknown'}`);
+
+  // Forward to connected mobile client
+  for (const [id, session] of sessions) {
+    if (session.mobileWs && session.mobileWs.readyState === 1) {
+      session.mobileWs.send(JSON.stringify({
+        type: 'hook_event',
+        event: event,
+        data: { session_id, ...data },
+        timestamp: Date.now()
+      }));
+    }
+  }
+
+  res.json({ success: true, event });
+});
+
+// Permission response — mobile client approves/denies a permission request
+app.post('/api/hooks/permission-response', (req, res) => {
+  const { session_id, decision } = req.body;
+
+  if (!session_id || !decision) {
+    return res.status(400).json({ error: 'session_id and decision required' });
+  }
+
+  const permFile = `/tmp/btelo-permission-${session_id}`;
+  try {
+    fs.writeFileSync(permFile, decision);
+    console.log(`[HOOK] Permission response: ${decision} for session ${session_id}`);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ============================================================
 // HTTP Server + WebSocket
 // ============================================================
@@ -427,6 +474,16 @@ function handleWsMessage(ws, msg, session, sessionId) {
     case 'publicKey':
       break;
     case 'keyRotation':
+      break;
+    case 'permission_response':
+      // Mobile client responding to a permission request
+      console.log(`[WS] Permission response: ${msg.decision} for session ${msg.session_id}`);
+      try {
+        const permFile = `/tmp/btelo-permission-${msg.session_id}`;
+        fs.writeFileSync(permFile, msg.decision || 'deny');
+      } catch (e) {
+        console.error(`[WS] Failed to write permission response:`, e.message);
+      }
       break;
     default:
       console.log(`[WS] Unknown message type: ${msg.type}`);

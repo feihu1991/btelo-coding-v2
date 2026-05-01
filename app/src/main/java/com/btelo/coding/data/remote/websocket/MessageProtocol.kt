@@ -30,6 +30,18 @@ enum class OutputType {
     SYSTEM
 }
 
+/**
+ * Hook Event Types from Claude Code BTELO Plugin
+ */
+enum class HookEventType {
+    SESSION_START,
+    TASK_COMPLETE,
+    WAITING_INPUT,
+    PERMISSION_REQUEST,
+    PROMPT_SUBMITTED,
+    TOOL_COMPLETED
+}
+
 sealed class BteloMessage {
     data class Command(val content: String, val type: InputType) : BteloMessage()
     data class Output(val data: String, val stream: StreamType) : BteloMessage()
@@ -92,6 +104,26 @@ sealed class BteloMessage {
         val mobileConnected: Boolean,
         val bridgeConnected: Boolean,
         val timestamp: Long
+    ) : BteloMessage()
+    
+    /**
+     * Hook Event from Claude Code BTELO Plugin
+     * Triggered by Claude Code lifecycle events
+     */
+    data class HookEvent(
+        val eventType: HookEventType,
+        val sessionId: String,
+        val data: Map<String, Any>,
+        val timestamp: Long
+    ) : BteloMessage()
+    
+    /**
+     * Permission Response sent from mobile to server
+     * User approves/denies a Claude Code permission request
+     */
+    data class PermissionResponse(
+        val sessionId: String,
+        val decision: String // "allow" or "deny"
     ) : BteloMessage()
 }
 
@@ -193,6 +225,18 @@ class MessageProtocol(private val gson: Gson) {
                 json.addProperty("mobile_connected", message.mobileConnected)
                 json.addProperty("bridge_connected", message.bridgeConnected)
                 json.addProperty("timestamp", message.timestamp)
+            }
+            is BteloMessage.HookEvent -> {
+                json.addProperty("type", "hook_event")
+                json.addProperty("event", message.eventType.name.lowercase())
+                json.addProperty("session_id", message.sessionId)
+                json.add("data", gson.toJsonTree(message.data))
+                json.addProperty("timestamp", message.timestamp)
+            }
+            is BteloMessage.PermissionResponse -> {
+                json.addProperty("type", "permission_response")
+                json.addProperty("session_id", message.sessionId)
+                json.addProperty("decision", message.decision)
             }
         }
         return gson.toJson(json)
@@ -318,6 +362,38 @@ class MessageProtocol(private val gson: Gson) {
                         metadata = metadata,
                         timestamp = jsonObject.get("timestamp")?.asString ?: ""
                     )
+                }
+                
+                // BTELO Coding v2: Hook Event
+                "hook_event" -> {
+                    val eventStr = jsonObject.get("event")?.asString?.uppercase() ?: ""
+                    val hookEventType = try {
+                        HookEventType.valueOf(eventStr)
+                    } catch (e: IllegalArgumentException) {
+                        null
+                    }
+                    
+                    val dataObj = jsonObject.getAsJsonObject("data")
+                    val dataMap = mutableMapOf<String, Any>()
+                    if (dataObj != null) {
+                        for ((key, value) in dataObj.entrySet()) {
+                            dataMap[key] = when {
+                                value.isJsonPrimitive && value.asJsonPrimitive.isBoolean -> value.asBoolean
+                                value.isJsonPrimitive && value.asJsonPrimitive.isNumber -> value.asNumber.toDouble()
+                                value.isJsonPrimitive -> value.asString
+                                else -> value.toString()
+                            }
+                        }
+                    }
+                    
+                    if (hookEventType != null) {
+                        BteloMessage.HookEvent(
+                            eventType = hookEventType,
+                            sessionId = jsonObject.get("session_id")?.asString ?: dataMap["session_id"]?.toString() ?: "",
+                            data = dataMap,
+                            timestamp = jsonObject.get("timestamp")?.asLong ?: System.currentTimeMillis()
+                        )
+                    } else null
                 }
                 
                 // BTELO Coding v2: Session State
