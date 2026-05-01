@@ -286,7 +286,7 @@ class ChatViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 isLoading = true,
                 inputText = "",
-                streamingContent = "",
+                streamingContent = "…",
                 isStreaming = true,
                 structuredOutputBuffer = StructuredOutputBuffer()
             )
@@ -299,6 +299,7 @@ class ChatViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         isStreaming = false,
+                        streamingContent = "",
                         error = exception.message
                     )
                 }

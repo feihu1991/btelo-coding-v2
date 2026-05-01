@@ -1,6 +1,11 @@
 package com.btelo.coding.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
@@ -576,6 +581,20 @@ fun CodeBlock(code: String, language: String = "") {
 
 @Composable
 fun AiStreamingBubble(partialContent: String) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val dotAlpha1 by infiniteTransition.animateFloat(
+        initialValue = 0.3f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(400), RepeatMode.Reverse)
+    )
+    val dotAlpha2 by infiniteTransition.animateFloat(
+        initialValue = 0.3f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(400, 150), RepeatMode.Reverse)
+    )
+    val dotAlpha3 by infiniteTransition.animateFloat(
+        initialValue = 0.3f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(400, 300), RepeatMode.Reverse)
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -589,22 +608,32 @@ fun AiStreamingBubble(partialContent: String) {
                     .background(AiBubbleDark)
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                Text(
-                    text = partialContent,
-                    color = TextPrimary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = 22.sp
-                )
+                if (partialContent == "…") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("●", color = BubbleGradientStart.copy(alpha = dotAlpha1), fontSize = 8.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Text("●", color = BubbleGradientStart.copy(alpha = dotAlpha2), fontSize = 8.sp)
+                        Spacer(Modifier.width(4.dp))
+                        Text("●", color = BubbleGradientStart.copy(alpha = dotAlpha3), fontSize = 8.sp)
+                    }
+                } else {
+                    Text(
+                        text = partialContent,
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 22.sp
+                    )
+                }
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "\u258B",
+                        text = "▋",
                         color = TextSecondary,
                         fontSize = 14.sp
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "\u25CF Claude 正在回复...",
+                        text = "● Claude 正在回复...",
                         color = BubbleGradientStart,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium
