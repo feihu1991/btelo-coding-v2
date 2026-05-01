@@ -252,26 +252,33 @@ function discoverSessions() {
 function parseJsonlEntry(entry) {
   if (entry.type === 'user') {
     const content = entry.message.content;
-    return {
+    return [{
       id: entry.uuid,
       content: typeof content === 'string' ? content : '',
       isFromUser: true,
+      msgType: 'text',
       timestamp: new Date(entry.timestamp).getTime()
-    };
+    }];
   } else if (entry.type === 'assistant') {
     const content = entry.message.content;
-    if (!Array.isArray(content)) return null;
-    const textBlocks = content.filter(b => b.type === 'text').map(b => b.text);
-    if (textBlocks.length > 0) {
-      return {
-        id: entry.uuid,
-        content: textBlocks.join(''),
-        isFromUser: false,
-        timestamp: new Date(entry.timestamp).getTime()
-      };
+    if (!Array.isArray(content)) return [];
+    const msgs = [];
+    for (const b of content) {
+      switch (b.type) {
+        case 'text':
+          if (b.text) msgs.push({ id: entry.uuid, content: b.text, isFromUser: false, msgType: 'text', timestamp: new Date(entry.timestamp).getTime() });
+          break;
+        case 'tool_use':
+          msgs.push({ id: entry.uuid, content: b.name || 'tool', isFromUser: false, msgType: 'tool_use', toolName: b.name, toolId: b.id, input: b.input || {}, timestamp: new Date(entry.timestamp).getTime() });
+          break;
+        case 'thinking':
+          if (b.thinking) msgs.push({ id: entry.uuid, content: b.thinking, isFromUser: false, msgType: 'thinking', timestamp: new Date(entry.timestamp).getTime() });
+          break;
+      }
     }
+    return msgs;
   }
-  return null;
+  return [];
 }
 
 function parseJsonlHistory(filePath) {
@@ -292,6 +299,35 @@ function parseJsonlHistory(filePath) {
 // ============================================================
 // JSONL file watcher — real-time sync
 // ============================================================
+function buildWatcherMessage(sessionId, msg) {
+  switch (msg.msgType) {
+    case 'tool_use':
+      return {
+        type: 'structured_output',
+        session_id: sessionId,
+        output_type: 'tool_call',
+        content: msg.content,
+        metadata: { toolName: msg.toolName, toolId: msg.toolId, parameters: msg.input || {} },
+        timestamp: msg.timestamp
+      };
+    case 'thinking':
+      return {
+        type: 'structured_output',
+        session_id: sessionId,
+        output_type: 'thinking',
+        content: msg.content,
+        metadata: {},
+        timestamp: msg.timestamp
+      };
+    default:
+      return {
+        type: 'new_message',
+        session_id: sessionId,
+        message: { id: msg.id, content: msg.content, isFromUser: msg.isFromUser, timestamp: msg.timestamp }
+      };
+  }
+}
+
 function watchJsonlFile(state, onNewMessage) {
   const filePath = state.jsonlPath;
   if (!filePath || !fs.existsSync(filePath)) return;
@@ -318,9 +354,11 @@ function watchJsonlFile(state, onNewMessage) {
         for (const line of lines) {
           try {
             const entry = JSON.parse(line);
-            const msg = parseJsonlEntry(entry);
-            // Only forward assistant messages - phone already shows user's own messages
-            if (msg && !msg.isFromUser) onNewMessage(msg);
+            const msgs = parseJsonlEntry(entry);
+            for (const msg of msgs) {
+              // Only forward assistant messages - phone already shows user's own messages
+              if (msg && !msg.isFromUser) onNewMessage(msg);
+            }
           } catch (e) { /* skip bad lines */ }
         }
 
@@ -596,11 +634,7 @@ function handleSelectSession(msg, state) {
 
   watchJsonlFile(state, (msg) => {
     if (state.ws && state.ws.readyState === 1) {
-      state.ws.send(JSON.stringify({
-        type: 'new_message',
-        session_id: state.sessionId,
-        message: msg
-      }));
+      state.ws.send(JSON.stringify(buildWatcherMessage(state.sessionId, msg)));
     }
   });
 
@@ -795,11 +829,7 @@ async function main() {
             }));
             watchJsonlFile(state, (newMsg) => {
               if (state.ws && state.ws.readyState === 1) {
-                state.ws.send(JSON.stringify({
-                  type: 'new_message',
-                  session_id: state.sessionId,
-                  message: newMsg
-                }));
+                state.ws.send(JSON.stringify(buildWatcherMessage(state.sessionId, newMsg)));
               }
             });
           }
