@@ -16,6 +16,7 @@ fun MessageList(
     messages: List<Message>,
     streamingContent: String = "",
     isStreaming: Boolean = false,
+    thinkingSession: ThinkingSession? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -37,7 +38,7 @@ fun MessageList(
         }
     }
 
-    LaunchedEffect(messages.size, streamingContent) {
+    LaunchedEffect(messages.size, streamingContent, thinkingSession?.currentTool) {
         if (shouldAutoScroll && messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
         }
@@ -51,7 +52,15 @@ fun MessageList(
             MessageBubble(message = message)
         }
 
-        if (isStreaming && streamingContent.isNotBlank()) {
+        // Thinking session indicator (active thinking with rotating icon + tools)
+        if (thinkingSession != null && thinkingSession.isActive) {
+            item(key = "thinking_session") {
+                ThinkingSessionBubble(session = thinkingSession)
+            }
+        }
+
+        // Regular streaming content (text response)
+        if (isStreaming && streamingContent.isNotBlank() && !streamingContent.startsWith("…")) {
             item(key = "streaming") {
                 AiStreamingBubble(partialContent = streamingContent)
             }

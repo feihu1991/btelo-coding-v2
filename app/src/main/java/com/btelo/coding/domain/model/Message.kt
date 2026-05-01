@@ -40,7 +40,8 @@ data class MessageMetadata(
     val isCollapsed: Boolean = false,
     val originalLength: Int = 0,
     val errorCode: String? = null,
-    val errorDetails: String? = null
+    val errorDetails: String? = null,
+    val toolNames: List<String>? = null
 )
 
 /**

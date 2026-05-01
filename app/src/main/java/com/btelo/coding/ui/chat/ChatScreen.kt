@@ -165,6 +165,7 @@ fun ChatScreen(
                 messages = uiState.messages,
                 streamingContent = uiState.streamingContent,
                 isStreaming = uiState.isStreaming,
+                thinkingSession = uiState.thinkingSession,
                 modifier = Modifier.weight(1f)
             )
 

@@ -7,6 +7,7 @@ import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.data.remote.websocket.OutputType
 import com.btelo.coding.domain.model.Message
 import com.btelo.coding.domain.model.MessageMetadata
+import com.btelo.coding.domain.model.MessageType
 import com.btelo.coding.domain.model.OutputType as DomainOutputType
 import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
@@ -21,6 +22,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+data class ThinkingSession(
+    val isActive: Boolean = false,
+    val thinkingContent: String = "",
+    val toolsCalled: List<String> = emptyList(),
+    val currentTool: String = ""
+)
 
 data class ChatUiState(
     val messages: List<Message> = emptyList(),
@@ -37,7 +45,8 @@ data class ChatUiState(
     val isStreaming: Boolean = false,
     val sessionName: String = "Claude Code",
     val selectedImageUri: String = "",
-    
+    val thinkingSession: ThinkingSession = ThinkingSession(),
+
     // Structured output state
     val structuredOutputBuffer: StructuredOutputBuffer = StructuredOutputBuffer()
 )
@@ -145,10 +154,62 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun processStructuredOutput(structuredMsg: Message) {
-        // THINKING: immediately create collapsed bubble, don't stream
+        // THINKING: start thinking session
         if (structuredMsg.outputType == DomainOutputType.THINKING) {
-            val thinkingMsg = structuredMsg.copy(outputType = DomainOutputType.THINKING)
-            viewModelScope.launch { messageRepository.saveMessage(thinkingMsg) }
+            val session = _uiState.value.thinkingSession
+            _uiState.value = _uiState.value.copy(
+                thinkingSession = session.copy(
+                    isActive = true,
+                    thinkingContent = if (session.thinkingContent.isEmpty()) structuredMsg.content
+                        else session.thinkingContent + structuredMsg.content,
+                    toolsCalled = session.toolsCalled,
+                    currentTool = ""
+                ),
+                isStreaming = true,
+                streamingContent = "…"
+            )
+            return
+        }
+
+        // TOOL_CALL during thinking: add to thinking session
+        if (structuredMsg.outputType == DomainOutputType.TOOL_CALL && _uiState.value.thinkingSession.isActive) {
+            val session = _uiState.value.thinkingSession
+            val toolName = structuredMsg.metadata?.toolName ?: structuredMsg.content
+            _uiState.value = _uiState.value.copy(
+                thinkingSession = session.copy(
+                    toolsCalled = session.toolsCalled + toolName,
+                    currentTool = toolName
+                )
+            )
+            // Also save tool card to messages
+            viewModelScope.launch { messageRepository.saveMessage(structuredMsg) }
+            return
+        }
+
+        // Text response: finalize thinking session
+        if (_uiState.value.thinkingSession.isActive) {
+            val session = _uiState.value.thinkingSession
+            if (session.toolsCalled.isNotEmpty() || session.thinkingContent.isNotEmpty()) {
+                val thinkingMsg = Message(
+                    id = "think-${System.currentTimeMillis()}",
+                    sessionId = "",
+                    content = session.thinkingContent.ifEmpty { "深度思考" },
+                    type = MessageType.THINKING,
+                    timestamp = System.currentTimeMillis() - 1000,
+                    isFromUser = false,
+                    outputType = DomainOutputType.THINKING,
+                    metadata = MessageMetadata(
+                        toolNames = session.toolsCalled,
+                        isCollapsed = true
+                    )
+                )
+                viewModelScope.launch { messageRepository.saveMessage(thinkingMsg) }
+            }
+            _uiState.value = _uiState.value.copy(
+                thinkingSession = ThinkingSession(),
+                isStreaming = true,
+                streamingContent = structuredMsg.content
+            )
             return
         }
 

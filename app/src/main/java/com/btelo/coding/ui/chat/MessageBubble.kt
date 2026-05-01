@@ -581,6 +581,64 @@ fun CodeBlock(code: String, language: String = "") {
 }
 
 @Composable
+fun ThinkingSessionBubble(session: ThinkingSession) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val rotationAngle by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Restart)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(AiBubbleShape)
+                .background(AiBubbleDark)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            // Header: rotating lightbulb + status text
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Lightbulb,
+                    contentDescription = "Thinking",
+                    tint = ThinkingPurple,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .rotate(rotationAngle)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (session.currentTool.isNotEmpty()) "正在调用 ${session.currentTool}..."
+                    else "深度思考中…",
+                    color = ThinkingPurple,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            // Tool list
+            if (session.toolsCalled.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                HorizontalDivider(color = ThinkingPurple.copy(alpha = 0.2f))
+                Spacer(Modifier.height(4.dp))
+                session.toolsCalled.forEach { tool ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("•", color = ThinkingPurple.copy(alpha = 0.6f), fontSize = 10.sp)
+                        Spacer(Modifier.width(6.dp))
+                        Text(tool, color = TextSecondary, fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.height(2.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun AiStreamingBubble(partialContent: String) {
     val infiniteTransition = rememberInfiniteTransition()
     val dotAlpha1 by infiniteTransition.animateFloat(
