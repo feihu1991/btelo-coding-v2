@@ -3,9 +3,11 @@ param(
     [string]$Text
 )
 
-$Win32Code = @'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 public class CS
 {
@@ -14,94 +16,112 @@ public class CS
     [DllImport("kernel32.dll")]
     public static extern bool FreeConsole();
     [DllImport("kernel32.dll")]
-    public static extern IntPtr GetStdHandle(uint nStdHandle);
-    [DllImport("kernel32.dll")]
-    public static extern bool WriteConsoleInputW(IntPtr hIn, INPUT_RECORD[] buf, uint len, out uint written);
+    public static extern IntPtr GetConsoleWindow();
     [DllImport("user32.dll")]
-    public static extern uint MapVirtualKeyW(uint code, uint type);
+    public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]
+    public static extern bool PostMessageW(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")]
+    public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr child, string cls, string name);
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct INPUT_RECORD { public ushort EventType; public KEY_EVENT_RECORD KeyEvent; }
+    public const uint WM_KEYDOWN = 0x0100;
+    public const uint WM_KEYUP = 0x0101;
+    public const uint WM_CHAR = 0x0102;
+    public const ushort VK_CONTROL = 0x11;
+    public const ushort VK_V = 0x56;
+    public const ushort VK_RETURN = 0x0D;
+    public const int SW_SHOW = 5;
+    public const int SW_RESTORE = 9;
 
-    [StructLayout(LayoutKind.Explicit)]
-    public struct KEY_EVENT_RECORD
+    public static IntPtr FindConsoleWindowForPid(uint targetPid)
     {
-        [FieldOffset(0)] public bool bKeyDown;
-        [FieldOffset(4)] public ushort wRepeatCount;
-        [FieldOffset(8)] public ushort wVirtualKeyCode;
-        [FieldOffset(10)] public ushort wVirtualScanCode;
-        [FieldOffset(12)] public char UnicodeChar;
-        [FieldOffset(16)] public uint dwControlKeyState;
+        CS.FreeConsole();
+        if (CS.AttachConsole(targetPid))
+        {
+            IntPtr h = GetConsoleWindow();
+            FreeConsole();
+            if (h != IntPtr.Zero) return h;
+        }
+        return IntPtr.Zero;
     }
 
-    public const uint STD_INPUT_HANDLE = 0xFFFFFFF6;
-    public const ushort KEY_EVENT = 0x0001;
-    public const ushort VK_RETURN = 0x0D;
-    public const uint MAPVK_VK_TO_VSC = 0x00;
-
-    public static bool SendText(string text)
+    public static bool PasteToWindow(IntPtr hWnd)
     {
-        IntPtr hIn = GetStdHandle(STD_INPUT_HANDLE);
-        if (hIn == IntPtr.Zero || hIn == (IntPtr)(-1)) return false;
+        // Bring window to foreground
+        ShowWindow(hWnd, SW_RESTORE);
+        SetForegroundWindow(hWnd);
+        System.Threading.Thread.Sleep(100);
 
-        foreach (char ch in text)
-        {
-            INPUT_RECORD[] rec = new INPUT_RECORD[1];
-            rec[0].EventType = KEY_EVENT;
-            rec[0].KeyEvent.bKeyDown = true;
-            rec[0].KeyEvent.wRepeatCount = 1;
+        // Send Ctrl+V (paste)
+        // Ctrl key down
+        IntPtr lParamCtrl = (IntPtr)((1 << 0) | (0x1D << 16) | (0 << 29) | (0 << 30) | (0 << 31));
+        PostMessageW(hWnd, WM_KEYDOWN, (IntPtr)VK_CONTROL, lParamCtrl);
+        System.Threading.Thread.Sleep(10);
 
-            char upper = Char.ToUpper(ch);
-            if (upper >= 'A' && upper <= 'Z')
-                rec[0].KeyEvent.wVirtualKeyCode = (ushort)upper;
-            else
-                rec[0].KeyEvent.wVirtualKeyCode = (ushort)ch;
+        // V key
+        IntPtr lParamV = (IntPtr)((1 << 0) | (0x2F << 16) | (0 << 29) | (0 << 30) | (0 << 31));
+        PostMessageW(hWnd, WM_KEYDOWN, (IntPtr)VK_V, lParamV);
+        System.Threading.Thread.Sleep(10);
+        PostMessageW(hWnd, WM_KEYUP, (IntPtr)VK_V, lParamV);
 
-            rec[0].KeyEvent.wVirtualScanCode = (ushort)MapVirtualKeyW(
-                rec[0].KeyEvent.wVirtualKeyCode, MAPVK_VK_TO_VSC);
-            rec[0].KeyEvent.UnicodeChar = ch;
-            rec[0].KeyEvent.dwControlKeyState = 0;
+        // Ctrl key up
+        PostMessageW(hWnd, WM_KEYUP, (IntPtr)VK_CONTROL, lParamCtrl);
 
-            uint w; WriteConsoleInputW(hIn, rec, 1, out w);
-            rec[0].KeyEvent.bKeyDown = false;
-            WriteConsoleInputW(hIn, rec, 1, out w);
-            System.Threading.Thread.Sleep(1);
-        }
         return true;
     }
 
-    public static bool SendEnter()
+    public static bool SendEnter(IntPtr hWnd)
     {
-        IntPtr hIn = GetStdHandle(STD_INPUT_HANDLE);
-        if (hIn == IntPtr.Zero || hIn == (IntPtr)(-1)) return false;
-
-        INPUT_RECORD[] rec = new INPUT_RECORD[1];
-        rec[0].EventType = KEY_EVENT;
-        rec[0].KeyEvent.bKeyDown = true;
-        rec[0].KeyEvent.wRepeatCount = 1;
-        rec[0].KeyEvent.wVirtualKeyCode = VK_RETURN;
-        rec[0].KeyEvent.wVirtualScanCode = (ushort)MapVirtualKeyW(VK_RETURN, MAPVK_VK_TO_VSC);
-        rec[0].KeyEvent.UnicodeChar = '\r';
-        rec[0].KeyEvent.dwControlKeyState = 0;
-
-        uint w; WriteConsoleInputW(hIn, rec, 1, out w);
-        rec[0].KeyEvent.bKeyDown = false;
-        WriteConsoleInputW(hIn, rec, 1, out w);
+        IntPtr lParam = (IntPtr)((1 << 0) | (0x1C << 16) | (0 << 29) | (0 << 30) | (0 << 31));
+        PostMessageW(hWnd, WM_KEYDOWN, (IntPtr)VK_RETURN, lParam);
+        System.Threading.Thread.Sleep(10);
+        PostMessageW(hWnd, WM_KEYUP, (IntPtr)VK_RETURN, lParam);
         return true;
     }
 }
 '@
 
-Add-Type -TypeDefinition $Win32Code
+# Step 1: Copy text to clipboard
+[System.Windows.Forms.Clipboard]::SetText($Text)
 
-[CS]::FreeConsole() | Out-Null
+# Step 2: Find console window
+$consoleWnd = [CS]::FindConsoleWindowForPid($TargetPid)
+if ($consoleWnd -eq [IntPtr]::Zero) {
+    # Try parent PID
+    try {
+        $parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$TargetPid").ParentProcessId
+        if ($parent) {
+            $consoleWnd = [CS]::FindConsoleWindowForPid($parent)
+        }
+    } catch {}
+}
 
-if (-not [CS]::AttachConsole($TargetPid)) {
-    Write-Error "AttachConsole failed. Run as Administrator."
+if ($consoleWnd -eq [IntPtr]::Zero) {
+    Write-Error "Cannot find console window for PID $TargetPid"
     exit 1
 }
 
-[CS]::SendText($Text) | Out-Null
-[CS]::SendEnter() | Out-Null
-[CS]::FreeConsole() | Out-Null
-Write-Output "OK"
+$sb = New-Object System.Text.StringBuilder(256)
+[CS]::GetWindowText($consoleWnd, $sb, 256)
+Write-Output "ConsoleWindow: $consoleWnd Title: '$($sb.ToString())'"
+
+# Step 3: Paste into window and press Enter
+[CS]::PasteToWindow($consoleWnd)
+Start-Sleep -Milliseconds 100
+[CS]::SendEnter($consoleWnd)
+
+# Step 4: Restore original foreground window
+# (no-op - we just paste and leave)
+
+Write-Output "OK:Clipboard"
