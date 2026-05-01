@@ -248,6 +248,8 @@ class EnhancedWebSocketClient(
             }
             is BteloMessage.StructuredOutput -> _messages.tryEmit(message)
             is BteloMessage.SessionState -> _messages.tryEmit(message)
+            is BteloMessage.HookEvent -> _messages.tryEmit(message)
+            is BteloMessage.PermissionResponse -> { /* handled via WebSocket send, not receive */ }
         }
     }
     
