@@ -183,24 +183,57 @@ fun ScanScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Discover button
-            Button(
-                onClick = { viewModel.discoverBridges() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart),
-                enabled = !uiState.isDiscovering
-            ) {
-                if (uiState.isDiscovering) {
-                    CircularProgressIndicator(
-                        color = TextOnBubble,
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp
-                    )
+            if (uiState.isDiscovering) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Searching indicator
+                    Button(
+                        onClick = { },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = BubbleGradientStart,
+                            disabledContainerColor = BubbleGradientStart.copy(alpha = 0.6f)
+                        ),
+                        enabled = false
+                    ) {
+                        CircularProgressIndicator(
+                            color = TextOnBubble,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("搜索中...", color = TextOnBubble, fontSize = 15.sp)
+                    }
+
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text("搜索中...", color = TextOnBubble, fontSize = 15.sp)
-                } else {
+
+                    // Stop button
+                    Button(
+                        onClick = { viewModel.stopDiscovery() },
+                        modifier = Modifier
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = RedError)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "停止", tint = TextOnBubble, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("停止", color = TextOnBubble, fontSize = 15.sp)
+                    }
+                }
+            } else {
+                Button(
+                    onClick = { viewModel.discoverBridges() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart)
+                ) {
                     Icon(Icons.Default.Search, contentDescription = null, tint = TextOnBubble)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("发现设备", color = TextOnBubble, fontSize = 15.sp)

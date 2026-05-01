@@ -14,10 +14,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
 import javax.inject.Inject
 
 data class ScanUiState(
@@ -68,6 +72,8 @@ class ScanViewModel @Inject constructor(
     private val sessionRepository: SessionRepository
 ) : ViewModel() {
 
+    private var discoveryCall: Call? = null
+
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
 
@@ -94,40 +100,54 @@ class ScanViewModel @Inject constructor(
             return
         }
 
+        // Cancel previous request if any
+        discoveryCall?.cancel()
+
         _uiState.value = _uiState.value.copy(isDiscovering = true, error = null, bridges = emptyList())
 
-        viewModelScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    val request = Request.Builder()
-                        .url("$server/bridges")
-                        .get()
-                        .build()
-                    okHttpClient.newCall(request).execute().body?.string() ?: ""
-                }
+        val request = Request.Builder()
+            .url("$server/bridges")
+            .get()
+            .build()
 
-                val resp = gson.fromJson(result, BridgesResponse::class.java)
-                if (resp != null && resp.success) {
-                    dataStoreManager.saveServerAddress(server)
+        val call = okHttpClient.newCall(request)
+        discoveryCall = call
+
+        call.enqueue(object : Callback {
+            override fun onResponse(call: Call, response: Response) {
+                if (!call.isCanceled()) {
+                    val body = response.body?.string() ?: ""
+                    val resp = gson.fromJson(body, BridgesResponse::class.java)
+                    if (resp != null && resp.success) {
+                        viewModelScope.launch { dataStoreManager.saveServerAddress(server) }
+                        _uiState.value = _uiState.value.copy(
+                            isDiscovering = false,
+                            bridges = resp.bridges
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isDiscovering = false,
+                            error = "未发现可用设备"
+                        )
+                    }
+                }
+            }
+
+            override fun onFailure(call: Call, e: IOException) {
+                if (!call.isCanceled()) {
                     _uiState.value = _uiState.value.copy(
                         isDiscovering = false,
-                        bridges = resp.bridges
-                    )
-                    Logger.i("ScanVM", "Found ${resp.bridges.size} bridge(s)")
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        isDiscovering = false,
-                        error = "未发现可用设备"
+                        error = "无法连接服务器: ${e.message}"
                     )
                 }
-            } catch (e: Exception) {
-                Logger.e("ScanVM", "Discover failed", e)
-                _uiState.value = _uiState.value.copy(
-                    isDiscovering = false,
-                    error = "无法连接服务器: ${e.message}"
-                )
             }
-        }
+        })
+    }
+
+    fun stopDiscovery() {
+        discoveryCall?.cancel()
+        discoveryCall = null
+        _uiState.value = _uiState.value.copy(isDiscovering = false)
     }
 
     fun connectToBridge(bridgeId: String, authCode: String) {
