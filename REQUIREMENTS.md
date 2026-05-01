@@ -48,13 +48,14 @@
 
 | 文件 | 作用 | 状态 |
 |------|------|------|
-| `app/.../ui/chat/ChatViewModel.kt` | 消息处理、思考会话管理 | 需要修复 |
+| `app/.../ui/chat/ChatViewModel.kt` | 消息处理、思考会话管理 | 已更新，需真机验证 |
 | `app/.../ui/chat/MessageList.kt` | 消息列表渲染 | 已更新 |
-| `app/.../ui/chat/MessageBubble.kt` | 消息气泡组件 | 已更新 |
-| `app/.../ui/chat/ChatScreen.kt` | 聊天页面布局 | 需要修复键盘 |
+| `app/.../ui/chat/MessageBubble.kt` | 消息气泡与统一思考框组件 | 已更新 |
+| `app/.../ui/chat/ChatScreen.kt` | 聊天页面布局、键盘 insets | 已尝试修复，需真机验证 |
 | `app/.../data/repository/MessageRepositoryImpl.kt` | 消息存储、WebSocket处理 | 已更新 |
-| `server/bridge.js` | Bridge CLI（resume模式） | 正常 |
-| `server/output-parser.js` | 解析Claude Code输出 | 正常 |
+| `server/relay.js` | Relay Server，Bridge 注册、App 发现设备、WebSocket 转发 | 已更新 |
+| `server/bridge.js` | Bridge CLI（Windows console input 优先，resume fallback） | 已更新，需跨平台测试 |
+| `server/output-parser.js` | 解析 Claude Code stream-json，并向 App 发送 structured_output | 已修复，默认导出 OutputParser 类 |
 
 ### 数据模型
 
@@ -108,6 +109,24 @@ ChatViewModel.processStructuredOutput()
     └── CLAUDE_RESPONSE → 结束思考会话，显示文本回复
 ```
 
+### Bridge 当前输入路径
+
+```
+手机 command
+    ↓
+Relay 转发到 Bridge
+    ↓
+bridge.js 优先查找正在运行的 Claude Code PID
+    ↓
+Windows: 通过 console-bridge/console-sender.ps1 发送键盘输入
+    ↓
+Bridge 监听 Claude JSONL 文件变化
+    ↓
+new_message / structured_output 回传手机
+```
+
+> 注意：`executeResumeCommand()` 仍保留为 fallback/legacy 路径，但当前主要交互链路优先使用 Windows console input。macOS/Linux 需要单独验证 fallback 是否完整覆盖。
+
 ---
 
 ## 三、已知问题
@@ -122,14 +141,26 @@ ChatViewModel.processStructuredOutput()
 
 ### 问题3：键盘弹出时消息列表不上移
 **原因：** `imePadding()` 与 Scaffold 的交互问题
-**状态：** 未解决
-**可能方案：**
-- 使用 `WindowInsets.ime` 直接处理
-- 或使用 `systemBarsPadding()` 组合
+**状态：** 已尝试修复，需真机验证
+**当前方案：**
+- `Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0))`
+- 内容 Column 使用 `.imePadding()`
 
 ### 问题4：灯泡转动不平滑
 **原因：** `infiniteRepeatable` 动画在重组时可能重置
-**状态：** 需要测试
+**状态：** 需要真机测试
+
+### 问题5：Bridge 结构化输出未启用
+**原因：** `server/output-parser.js` 之前导出对象，`bridge.js` 期望默认导出 `OutputParser` 函数/类
+**状态：** 已修复。`output-parser.js` 现在默认导出 `OutputParser` 类，并保留命名导出供测试使用。
+
+### 问题6：公网 Relay 信息暴露
+**原因：** `/bridges` 当前可直接列出 bridge 设备信息和工作目录
+**状态：** 待修复
+**建议：**
+- `/bridges` 不返回完整 `work_dir`
+- 增加失败次数限制和 auth code 过期时间
+- Relay 暴露公网时增加访问保护
 
 ---
 
@@ -150,6 +181,10 @@ cd server && npm start
 
 # 启动 Bridge
 node server/bridge.js --workdir "C:\workspace\btelo-coding-v2" --session <session_id>
+
+# 测试 output parser
+node server/output-parser.js
+# 然后粘贴 Claude Code stream-json 输出
 
 # 查看 Bridge 日志
 cat /c/Users/win/AppData/Local/Temp/claude/C--workspace-btelo-coding-v2/*/tasks/*.output
@@ -239,7 +274,9 @@ LazyColumn {
 
 ## 七、待修复清单
 
-- [ ] 键盘弹出时消息列表上移
-- [ ] 发送消息后键盘不自动收回
+- [ ] 键盘弹出时消息列表上移：真机验证
+- [ ] 发送消息后键盘不自动收回：真机验证
 - [ ] 思考框展开/折叠动画优化
 - [ ] 灯泡转动平滑度优化
+- [ ] `/bridges` 信息暴露与 auth code 限流
+- [ ] macOS/Linux fallback 路径测试
