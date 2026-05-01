@@ -200,7 +200,7 @@ class MessageRepositoryImpl @Inject constructor(
                         OutputType.THINKING -> MessageType.THINKING
                         else -> MessageType.OUTPUT
                     },
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = message.timestamp.toLongOrNull() ?: System.currentTimeMillis(),
                     isFromUser = false,
                     outputType = domainOutputType,
                     metadata = metadata,
