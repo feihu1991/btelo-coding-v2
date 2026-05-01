@@ -281,17 +281,20 @@ function parseJsonlEntry(entry) {
   return [];
 }
 
-function parseJsonlHistory(filePath) {
+function parseJsonlHistory(filePath, maxMessages = 100) {
   if (!fs.existsSync(filePath)) return [];
   const content = fs.readFileSync(filePath, 'utf-8');
   const lines = content.split('\n').filter(l => l.trim());
   const messages = [];
-  for (const line of lines) {
+  // Process from end (most recent first) for efficiency
+  for (let i = lines.length - 1; i >= 0 && messages.length < maxMessages; i--) {
     try {
-      const entry = JSON.parse(line);
+      const entry = JSON.parse(lines[i]);
       const msgs = parseJsonlEntry(entry);
       for (const m of msgs) {
-        if (!m.isFromUser) messages.push(m);
+        if (!m.isFromUser && messages.length < maxMessages) {
+          messages.unshift(m); // prepend to maintain chronological order
+        }
       }
     } catch (e) { /* skip bad lines */ }
   }
