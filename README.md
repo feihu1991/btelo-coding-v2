@@ -19,13 +19,14 @@ BTELO Coding 是一个让你在手机上远程控制 Claude Code 的解决方案
    - **Relay Server** (`relay.js`)：消息转发器
    - **Bridge CLI** (`bridge.js`)：Claude Code CLI 管理器
    - **PTY Bridge** (`pty-bridge.js`)：伪终端模式
+   - **Console Bridge** (`console-bridge/`)：Win32 Console API 控制方案
 
 ## 架构图
 
 ```
 ┌─────────────────┐      WebSocket       ┌─────────────────┐
 │   Mobile App    │ ←──────────────────→ │  Relay Server   │
-│  (Kotlin/UI)   │                      │   (relay.js)   │
+│  (Kotlin/UI)   │                      │   (relay.js)    │
 └─────────────────┘                      └────────┬────────┘
                                                   │
                                                   WebSocket
@@ -41,6 +42,35 @@ BTELO Coding 是一个让你在手机上远程控制 Claude Code 的解决方案
                                            │ (CLI)          │
                                            └────────────────┘
 ```
+
+## 三通道控制方案
+
+BTELO Coding v2 采用三通道方案实现对 Claude Code 的控制：
+
+| 通道 | 方式 | 适用场景 | 优点 | 缺点 |
+|------|------|----------|------|------|
+| **Resume 通道** | `claude -p` 命令 | 快速命令执行 | 简单可靠 | 无交互 |
+| **PTY 通道** | node-pty 伪终端 | 交互式操作 | 真终端体验 | 平台差异 |
+| **Console API 通道** | Win32 Console API | Windows 深度控制 | 可读写控制台 | 仅 Windows |
+
+### Console API 通道 (POC 阶段)
+
+> 🔬 **当前状态**：概念验证 (POC) 阶段
+
+使用 Win32 Console API (`AttachConsole` / `WriteConsoleInput` / `ReadConsoleOutput`) 直接读写 Claude Code 控制台缓冲区：
+
+```powershell
+# PowerShell POC 测试
+powershell -ExecutionPolicy Bypass -File server/console-bridge/test-console-bridge.ps1
+```
+
+**核心 API**：
+- `AttachConsole(pid)` - 附加到目标进程控制台
+- `WriteConsoleInput()` - 模拟键盘输入
+- `ReadConsoleOutput()` - 读取屏幕内容
+- `FreeConsole()` - 分离控制台
+
+详见 [Console Bridge 文档](./server/console-bridge/README.md)
 
 ## 快速开始
 
@@ -129,9 +159,14 @@ Yami-Coding-Android-new/
 ├── server/                       # Node.js Server
 │   ├── relay.js                  # 消息转发服务器
 │   ├── bridge.js                 # Bridge CLI (resume 模式)
-│   ├── pty-bridge.js             # PTY 模式 bridge
+│   ├── pty-bridge.js            # PTY 模式 bridge
 │   ├── output-parser.js          # CLI 输出解析器
-│   └── package.json
+│   └── console-bridge/           # Win32 Console API POC
+│       ├── test-console-bridge.ps1  # PowerShell POC
+│       ├── console_bridge.cpp     # N-API C++ 源码
+│       ├── binding.gyp            # node-gyp 配置
+│       ├── index.js               # Node.js 封装
+│       └── test.js                # 测试脚本
 │
 └── docs/                         # 设计文档
 ```
@@ -141,7 +176,7 @@ Yami-Coding-Android-new/
 - **Android**: 10+ (API 29)
 - **Node.js**: 16+
 - **Claude Code**: 最新版本
-- **平台**: Linux/macOS/Windows (PTY 模式在 Linux/macOS 效果最佳)
+- **平台**: Linux/macOS/Windows
 
 ## 配置
 
@@ -170,6 +205,20 @@ Yami-Coding-Android-new/
 ```bash
 cd server
 node relay.js
+```
+
+### 测试 Console Bridge POC (Windows)
+
+```bash
+cd server/console-bridge
+
+# PowerShell 版本（无需编译）
+powershell -ExecutionPolicy Bypass -File test-console-bridge.ps1
+
+# Node.js 版本（需要编译）
+npm install
+npx node-gyp rebuild
+node test.js
 ```
 
 ### 测试结构化输出解析器

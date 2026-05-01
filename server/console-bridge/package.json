@@ -1,0 +1,26 @@
+{
+  "name": "btelo-console-bridge",
+  "version": "0.1.0",
+  "description": "BTELO Console Bridge - Win32 Console API POC for Claude Code",
+  "main": "index.js",
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "claude",
+    "console",
+    "win32",
+    "api",
+    "bridge"
+  ],
+  "author": "BTELO",
+  "license": "MIT",
+  "gypfile": true,
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": [
+    "win32"
+  ]
+}
