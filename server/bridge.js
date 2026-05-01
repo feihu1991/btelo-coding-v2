@@ -385,7 +385,7 @@ function sendConsoleInput(pid, text, state) {
   const psArgs = [
     '-ExecutionPolicy', 'Bypass',
     '-File', scriptPath,
-    '-Pid', String(pid),
+    '-TargetPid', String(pid),
     '-Text', escapedText
   ];
 
