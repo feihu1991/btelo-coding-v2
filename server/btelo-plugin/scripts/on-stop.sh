@@ -17,7 +17,7 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 # Small delay to allow transcript to flush
-sleep 0.3
+sleep 1
 
 QUERY=""
 RESPONSE=""

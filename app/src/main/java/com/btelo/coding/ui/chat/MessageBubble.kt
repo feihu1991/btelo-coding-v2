@@ -57,15 +57,15 @@ import com.btelo.coding.domain.model.OutputType
 import com.btelo.coding.ui.theme.AiBubbleDark
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
+import com.btelo.coding.ui.theme.CardSurface
 import com.btelo.coding.ui.theme.CodeBlockBg
-import com.btelo.coding.ui.theme.ErrorRed
+import com.btelo.coding.ui.theme.RedError
 import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
 import com.btelo.coding.ui.theme.TextTertiary
-import com.btelo.coding.ui.theme.ThinkingBorder
-import com.btelo.coding.ui.theme.ToolCallBg
-import com.btelo.coding.ui.theme.WarningYellow
+import com.btelo.coding.ui.theme.ThinkingPurple
+import com.btelo.coding.ui.theme.WarningAmber
 
 private val UserBubbleShape = RoundedCornerShape(14.dp, 14.dp, 3.dp, 14.dp)
 private val AiBubbleShape = RoundedCornerShape(14.dp, 14.dp, 14.dp, 3.dp)
@@ -105,7 +105,7 @@ fun MessageBubble(message: Message) {
 }
 
 @Composable
-private fun UserBubble(message: Message, clipboardManager: androidx.compose.foundation.text.BasicTextField) {
+private fun UserBubble(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
     Row(
         modifier = Modifier
             .padding(
@@ -133,7 +133,7 @@ private fun UserBubble(message: Message, clipboardManager: androidx.compose.foun
 }
 
 @Composable
-private fun AiResponseBubble(message: Message, clipboardManager: androidx.compose.foundation.text.BasicTextField) {
+private fun AiResponseBubble(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
     Row(
         modifier = Modifier
             .padding(
@@ -187,7 +187,7 @@ private fun AiResponseBubble(message: Message, clipboardManager: androidx.compos
 }
 
 @Composable
-private fun ToolCallBubble(message: Message, clipboardManager: androidx.compose.foundation.text.BasicTextField) {
+private fun ToolCallBubble(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
     var isExpanded by remember { mutableStateOf(false) }
     val metadata = message.metadata
     
@@ -204,7 +204,7 @@ private fun ToolCallBubble(message: Message, clipboardManager: androidx.compose.
         Column(
             modifier = Modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(ToolCallBg)
+                .background(CardSurface)
                 .border(1.dp, BubbleGradientStart.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
                 .clickable { isExpanded = !isExpanded }
                 .padding(12.dp)
@@ -274,7 +274,7 @@ private fun ToolCallBubble(message: Message, clipboardManager: androidx.compose.
 }
 
 @Composable
-private fun FileOpBubble(message: Message, clipboardManager: androidx.compose.foundation.text.BasicTextField) {
+private fun FileOpBubble(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
     var isExpanded by remember { mutableStateOf(false) }
     val metadata = message.metadata
     val fileOpType = metadata?.fileOpType ?: "file"
@@ -282,8 +282,8 @@ private fun FileOpBubble(message: Message, clipboardManager: androidx.compose.fo
     val (icon, color) = when (fileOpType.lowercase()) {
         "read" -> Icons.Default.Description to TextSecondary
         "write" -> Icons.Default.Description to BubbleGradientStart
-        "edit" -> Icons.Default.Code to WarningYellow
-        "delete" -> Icons.Default.Error to ErrorRed
+        "edit" -> Icons.Default.Code to WarningAmber
+        "delete" -> Icons.Default.Error to RedError
         else -> Icons.Default.Description to TextSecondary
     }
     
@@ -300,7 +300,7 @@ private fun FileOpBubble(message: Message, clipboardManager: androidx.compose.fo
         Column(
             modifier = Modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(ToolCallBg.copy(alpha = 0.5f))
+                .background(CardSurface.copy(alpha = 0.5f))
                 .border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
                 .clickable { isExpanded = !isExpanded }
                 .padding(12.dp)
@@ -337,7 +337,7 @@ private fun FileOpBubble(message: Message, clipboardManager: androidx.compose.fo
 }
 
 @Composable
-private fun ThinkingBubble(message: Message, clipboardManager: androidx.compose.foundation.text.BasicTextField) {
+private fun ThinkingBubble(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
     var isExpanded by remember { mutableStateOf(false) }
     
     Row(
@@ -353,11 +353,11 @@ private fun ThinkingBubble(message: Message, clipboardManager: androidx.compose.
         Column(
             modifier = Modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(ThinkingBorder.copy(alpha = 0.1f))
+                .background(ThinkingPurple.copy(alpha = 0.1f))
                 .border(
                     width = 1.dp,
                     brush = Brush.linearGradient(
-                        colors = listOf(ThinkingBorder.copy(alpha = 0.5f), ThinkingBorder.copy(alpha = 0.2f))
+                        colors = listOf(ThinkingPurple.copy(alpha = 0.5f), ThinkingPurple.copy(alpha = 0.2f))
                     ),
                     shape = RoundedCornerShape(14.dp)
                 )
@@ -368,13 +368,13 @@ private fun ThinkingBubble(message: Message, clipboardManager: androidx.compose.
                 Icon(
                     imageVector = Icons.Default.Lightbulb,
                     contentDescription = "Thinking",
-                    tint = ThinkingBorder,
+                    tint = ThinkingPurple,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "Thinking...",
-                    color = ThinkingBorder,
+                    color = ThinkingPurple,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -406,7 +406,7 @@ private fun ThinkingBubble(message: Message, clipboardManager: androidx.compose.
 }
 
 @Composable
-private fun ErrorBubble(message: Message, clipboardManager: androidx.compose.foundation.text.BasicTextField) {
+private fun ErrorBubble(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
     Row(
         modifier = Modifier
             .padding(
@@ -420,21 +420,21 @@ private fun ErrorBubble(message: Message, clipboardManager: androidx.compose.fou
         Column(
             modifier = Modifier
                 .clip(RoundedCornerShape(14.dp))
-                .background(ErrorRed.copy(alpha = 0.1f))
-                .border(1.dp, ErrorRed.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                .background(RedError.copy(alpha = 0.1f))
+                .border(1.dp, RedError.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
                 .padding(12.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Error,
                     contentDescription = "Error",
-                    tint = ErrorRed,
+                    tint = RedError,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "Error",
-                    color = ErrorRed,
+                    color = RedError,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
@@ -450,7 +450,7 @@ private fun ErrorBubble(message: Message, clipboardManager: androidx.compose.fou
 }
 
 @Composable
-private fun SystemBubble(message: Message, clipboardManager: androidx.compose.foundation.text.BasicTextField) {
+private fun SystemBubble(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
     Row(
         modifier = Modifier
             .padding(
@@ -500,7 +500,7 @@ private fun DetailRow(label: String, value: String) {
 }
 
 @Composable
-private fun ActionButtonsRow(message: Message, clipboardManager: androidx.compose.foundation.text.BasicTextField) {
+private fun ActionButtonsRow(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
     Row(
         modifier = Modifier.padding(
             start = 18.dp,

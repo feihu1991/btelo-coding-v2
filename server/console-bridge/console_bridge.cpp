@@ -11,6 +11,7 @@
 
 #include <node_api.h>
 #include <windows.h>
+#include <tlhelp32.h>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -118,12 +119,16 @@ napi_value FindProcesses(napi_env env, napi_callback_info info) {
     
     // P0 #3: 将 char* (UTF-8) 转换为 wchar_t* 再构造 wstring
     size_t wcharCount = 0;
-    mbstowcs_s(&wcharCount, nullptr, 0, processName, processNameLen);
+    errno_t mbsErr = mbstowcs_s(&wcharCount, nullptr, 0, processName, processNameLen);
     std::wstring searchLower;
-    if (wcharCount > 0) {
+    if (mbsErr == 0 && wcharCount > 0) {
         searchLower.resize(wcharCount);
-        mbstowcs_s(nullptr, &searchLower[0], wcharCount, processName, processNameLen);
-        searchLower.resize(wcharCount - 1);  // mbstowcs_s 包含 null terminator
+        mbsErr = mbstowcs_s(nullptr, &searchLower[0], wcharCount, processName, processNameLen);
+        if (mbsErr == 0) {
+            searchLower.resize(wcharCount - 1);  // mbstowcs_s 包含 null terminator
+        } else {
+            searchLower.clear();
+        }
     }
     for (auto& c : searchLower) {
         if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';

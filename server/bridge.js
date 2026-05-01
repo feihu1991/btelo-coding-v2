@@ -3,7 +3,7 @@
 /**
  * BTELO Coding Bridge — standalone CLI tool managing Claude Code.
  * 
- * Registers with the relay server, generates a QR code for mobile connection,
+ * Registers with the relay server, generates an auth code for mobile connection,
  * and manages Claude Code processes (session discovery, command execution, JSONL watching).
  * 
  * Two execution modes:
@@ -28,8 +28,6 @@ const { v4: uuidv4 } = require('uuid');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
-const qrcode = require('qrcode-terminal');
-
 // Output parser (optional)
 let OutputParser = null;
 try {
@@ -109,7 +107,7 @@ Options:
 
 Flow:
   1. Bridge registers with relay server
-  2. QR code is displayed — scan with BTELO app
+  2. Auth code is displayed — enter in BTELO app
   3. Bridge connects to relay via WebSocket
   4. Commands from mobile are forwarded to Claude Code
   5. Claude output is streamed back to mobile (structured or raw)
@@ -389,6 +387,7 @@ function executeResumeCommand(state, command, onOutput, outputParser) {
     '-p', command,
     '-r', state.claudeSessionId,
     '--output-format', 'stream-json',
+    '--verbose',
     '--dangerously-skip-permissions'
   ];
 
@@ -407,7 +406,9 @@ function executeResumeCommand(state, command, onOutput, outputParser) {
 
   child.stdout.on('data', (data) => {
     const str = data.toString();
-    
+    // Echo to bridge terminal
+    process.stdout.write(str);
+
     if (outputParser) {
       // Use structured output parser
       outputParser.process(str);
@@ -436,6 +437,7 @@ function executeResumeCommand(state, command, onOutput, outputParser) {
   child.stderr.on('data', (data) => {
     const text = data.toString().trim();
     if (text) {
+      process.stderr.write(data.toString());
       console.log(`[CLAUDE:stderr] ${text}`);
       if (outputParser) {
         outputParser.emitStructuredOutput && outputParser.emitStructuredOutput('error', text);
@@ -478,20 +480,28 @@ function executeResumeCommand(state, command, onOutput, outputParser) {
 // Handle select_session — attach to an existing Claude session
 // ============================================================
 function handleSelectSession(msg, state) {
-  const claudeSessionId = msg.session_id;
-  if (!claudeSessionId) {
+  const requestedId = msg.session_id;
+  if (!requestedId) {
     state.ws.send(JSON.stringify({ type: 'error', message: 'session_id required' }));
     return;
   }
 
-  console.log(`[BRIDGE] Selecting Claude session: ${claudeSessionId}`);
+  console.log(`[BRIDGE] Select session requested: ${requestedId}`);
 
   const discovered = discoverSessions();
-  const target = discovered.find(s => s.sessionId === claudeSessionId);
+  // Try to match the requested ID (could be relay session ID or Claude session ID)
+  let target = discovered.find(s => s.sessionId === requestedId);
 
   if (!target) {
-    state.ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }));
-    return;
+    // Fall back to auto-selected session
+    if (state.claudeSessionId) {
+      target = discovered.find(s => s.sessionId === state.claudeSessionId);
+      console.log(`[BRIDGE] No match for "${requestedId}", using auto-selected: ${state.claudeSessionId.substring(0, 12)}...`);
+    }
+    if (!target) {
+      state.ws.send(JSON.stringify({ type: 'error', message: 'No Claude session available' }));
+      return;
+    }
   }
 
   if (!target.hasHistory) {
@@ -501,7 +511,7 @@ function handleSelectSession(msg, state) {
 
   stopWatching(state);
 
-  state.claudeSessionId = claudeSessionId;
+  state.claudeSessionId = target.sessionId;
   state.jsonlPath = target.jsonlPath;
   state.workDir = target.cwd;
 
@@ -511,7 +521,7 @@ function handleSelectSession(msg, state) {
 
   state.ws.send(JSON.stringify({
     type: 'sync_history',
-    session_id: claudeSessionId,
+    session_id: state.sessionId,
     messages: history
   }));
 
@@ -519,7 +529,7 @@ function handleSelectSession(msg, state) {
     if (state.ws && state.ws.readyState === 1) {
       state.ws.send(JSON.stringify({
         type: 'new_message',
-        session_id: claudeSessionId,
+        session_id: state.sessionId,
         message: msg
       }));
     }
@@ -529,7 +539,7 @@ function handleSelectSession(msg, state) {
     type: 'status',
     connected: true,
     claude_code: state.claudeInfo,
-    session_id: claudeSessionId,
+    session_id: state.sessionId,
     message: `Connected to session (${history.length} messages loaded)`
   }));
 }
@@ -595,13 +605,25 @@ async function main() {
   console.log('');
 
   // Step 1: Register with relay
-  console.log('[BRIDGE] Registering with relay server...');
+  const authCode = String(Math.floor(100000 + Math.random() * 900000));
+  console.log('[BRIDGE] Generating auth code...');
+  console.log('');
+
+  console.log('  ╔══════════════════════════════════════╗');
+  console.log('  ║          AUTH CODE                   ║');
+  console.log(`  ║            ${authCode}                      ║`);
+  console.log('  ║     Enter this code in the app       ║');
+  console.log('  ╚══════════════════════════════════════╝');
+  console.log('');
+
+  console.log(`[BRIDGE] Registering with relay server (auth: ${authCode})...`);
   let regRes;
   try {
     regRes = await httpRequest(`${opts.server}/bridge/register`, 'POST', {
       device_name: opts.name,
       work_dir: opts.workDir,
-      mode: opts.mode
+      mode: opts.mode,
+      auth_code: authCode
     });
   } catch (err) {
     console.error(`[BRIDGE] Cannot reach relay server at ${opts.server}: ${err.message}`);
@@ -621,16 +643,13 @@ async function main() {
   console.log(`[BRIDGE] Registered: session ${state.sessionId}`);
   console.log('');
 
-  // Step 2: Show QR code
-  console.log('  Scan QR code with BTELO app to connect:');
+  // Step 2: Show connection summary
+  console.log(`  Relay:     ${opts.server}`);
+  console.log(`  Session:   ${state.sessionId}`);
+  console.log(`  App URL:   ${state.connectUrl}`);
+  console.log('='.repeat(50));
+  console.log('  Waiting for mobile to connect via auth code...');
   console.log('');
-  qrcode.generate(state.connectUrl, { small: true }, (qrText) => {
-    console.log(qrText);
-    console.log('');
-    console.log(`  Connection URL: ${state.connectUrl}`);
-    console.log('='.repeat(50));
-    console.log('');
-  });
 
   // Step 3: Discover existing sessions and auto-select the best match
   const discovered = discoverSessions();
@@ -696,14 +715,14 @@ async function main() {
             console.log(`[BRIDGE] Auto-sending history: ${state.claudeSessionId.substring(0, 12)}... (${history.length} msgs)`);
             state.ws.send(JSON.stringify({
               type: 'sync_history',
-              session_id: state.claudeSessionId,
+              session_id: state.sessionId,
               messages: history
             }));
             watchJsonlFile(state, (newMsg) => {
               if (state.ws && state.ws.readyState === 1) {
                 state.ws.send(JSON.stringify({
                   type: 'new_message',
-                  session_id: state.claudeSessionId,
+                  session_id: state.sessionId,
                   message: newMsg
                 }));
               }
@@ -753,6 +772,19 @@ async function main() {
 
       case 'publicKey':
         break;
+
+      case 'permission_response': {
+        const permDir = path.join(os.homedir(), '.btelo', 'permissions');
+        const permFile = path.join(permDir, `btelo-permission-${msg.session_id || state.sessionId}`);
+        try {
+          fs.mkdirSync(permDir, { recursive: true });
+          fs.writeFileSync(permFile, msg.decision || 'deny');
+          console.log(`[BRIDGE] Permission response: ${msg.decision} for session ${msg.session_id}`);
+        } catch (e) {
+          console.error(`[BRIDGE] Failed to write permission response:`, e.message);
+        }
+        break;
+      }
 
       case 'keyRotation':
         if (msg.action === 'initiate') {

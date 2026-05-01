@@ -1,16 +1,5 @@
 package com.btelo.coding.ui.scan
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.util.Size
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -32,11 +21,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -60,17 +50,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.btelo.coding.ui.theme.AppBackground
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
@@ -81,10 +67,6 @@ import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
 import com.btelo.coding.ui.theme.TextTertiary
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
-import java.util.concurrent.Executors
 
 @Composable
 fun ScanScreen(
@@ -92,25 +74,12 @@ fun ScanScreen(
     viewModel: ScanViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
 
-    var hasCameraPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                    PackageManager.PERMISSION_GRANTED
-        )
-    }
+    var showAuthDialog by remember { mutableStateOf(false) }
+    var authBridgeId by remember { mutableStateOf("") }
+    var authBridgeName by remember { mutableStateOf("") }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasCameraPermission = granted
-    }
-
-    var showQrScanner by remember { mutableStateOf(false) }
-    var showManualInput by remember { mutableStateOf(false) }
-
-    // Auto-navigate when connected with session
+    // Auto-navigate when connected
     LaunchedEffect(uiState.isConnected, uiState.sessionId) {
         if (uiState.isConnected && uiState.sessionId != null) {
             onConnected(uiState.sessionId!!)
@@ -122,29 +91,18 @@ fun ScanScreen(
             .fillMaxSize()
             .background(AppBackground)
     ) {
-        // Main connection page
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(80.dp))
+            Spacer(modifier = Modifier.height(60.dp))
 
-            // Server status card (shown when connected)
-            if (uiState.isConnected) {
-                ServerStatusCard(
-                    serverAddress = uiState.serverAddress,
-                    claudeVersion = uiState.claudeVersion,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(40.dp))
-            }
-
-            // Decorative logo
+            // Logo
             Box(
                 modifier = Modifier
-                    .size(120.dp)
+                    .size(100.dp)
                     .clip(CircleShape)
                     .background(
                         brush = Brush.radialGradient(
@@ -159,7 +117,7 @@ fun ScanScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(80.dp)
+                        .size(64.dp)
                         .clip(CircleShape)
                         .background(
                             brush = Brush.linearGradient(
@@ -169,374 +127,257 @@ fun ScanScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "C",
+                        text = "B",
                         color = TextOnBubble,
-                        fontSize = 36.sp,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
-            // Title
             Text(
-                text = "开始对话",
-                style = MaterialTheme.typography.headlineLarge,
+                text = "BTELO Coding",
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary,
-                fontSize = 28.sp
+                fontSize = 26.sp
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = if (uiState.isConnected) "连接已就绪" else "扫码或输入地址连接服务器",
+                text = "连接到你的开发机器",
                 style = MaterialTheme.typography.bodyLarge,
                 color = TextSecondary,
-                fontSize = 15.sp
+                fontSize = 14.sp
             )
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // Action buttons
-            if (!uiState.isConnected) {
-                // Scan QR button
-                Button(
-                    onClick = {
-                        if (hasCameraPermission) {
-                            showQrScanner = true
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.CAMERA)
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart)
-                ) {
-                    Icon(
-                        Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        tint = TextOnBubble
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "扫描二维码",
+            // Server address input
+            OutlinedTextField(
+                value = uiState.serverAddress,
+                onValueChange = { viewModel.setServerAddress(it) },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("http://192.168.x.x:8080", color = TextTertiary) },
+                label = { Text("服务器地址") },
+                singleLine = true,
+                leadingIcon = {
+                    Icon(Icons.Default.Dns, contentDescription = null, tint = TextSecondary)
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    focusedBorderColor = BubbleGradientStart,
+                    unfocusedBorderColor = TextTertiary.copy(alpha = 0.3f),
+                    focusedLabelColor = BubbleGradientStart,
+                    unfocusedLabelColor = TextSecondary
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Search
+                ),
+                shape = RoundedCornerShape(14.dp)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Discover button
+            Button(
+                onClick = { viewModel.discoverBridges() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart),
+                enabled = !uiState.isDiscovering
+            ) {
+                if (uiState.isDiscovering) {
+                    CircularProgressIndicator(
                         color = TextOnBubble,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Manual input button
-                OutlinedButton(
-                    onClick = { showManualInput = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Link,
-                        contentDescription = null,
-                        tint = TextSecondary
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "手动输入地址",
-                        color = TextSecondary,
-                        fontSize = 16.sp
-                    )
+                    Text("搜索中...", color = TextOnBubble, fontSize = 15.sp)
+                } else {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = TextOnBubble)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("发现设备", color = TextOnBubble, fontSize = 15.sp)
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
             // Error message
             uiState.error?.let { error ->
-                Spacer(modifier = Modifier.height(16.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = RedError.copy(alpha = 0.1f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(14.dp),
+                        modifier = Modifier.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = error,
                             color = RedError,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            fontSize = 13.sp
                         )
                         IconButton(onClick = { viewModel.clearError() }) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Dismiss",
-                                tint = RedError
-                            )
+                            Icon(Icons.Default.Close, contentDescription = "关闭", tint = RedError, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
-            }
-
-            // Loading indicator
-            if (uiState.isConnecting) {
-                Spacer(modifier = Modifier.height(24.dp))
-                CircularProgressIndicator(
-                    color = BubbleGradientStart,
-                    modifier = Modifier.size(32.dp)
-                )
                 Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Bridge list
+            if (uiState.bridges.isNotEmpty()) {
                 Text(
-                    text = "连接中...",
+                    text = "可用设备 (${uiState.bridges.size})",
                     color = TextSecondary,
-                    style = MaterialTheme.typography.bodyMedium
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp)
                 )
-            }
 
-            Spacer(modifier = Modifier.height(40.dp))
-        }
-
-        // QR Scanner overlay
-        AnimatedVisibility(
-            visible = showQrScanner,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            QrScannerOverlay(
-                hasPermission = hasCameraPermission,
-                onQrCodeDetected = { qrContent ->
-                    showQrScanner = false
-                    viewModel.onQrCodeScanned(qrContent)
-                },
-                onRequestPermission = {
-                    permissionLauncher.launch(Manifest.permission.CAMERA)
-                },
-                onDismiss = { showQrScanner = false }
-            )
-        }
-
-        // Manual input dialog
-        AnimatedVisibility(
-            visible = showManualInput,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            ManualInputOverlay(
-                onConnect = { url ->
-                    showManualInput = false
-                    viewModel.connectManually(url)
-                },
-                onDismiss = { showManualInput = false }
-            )
-        }
-    }
-}
-
-@Composable
-private fun OutlinedButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
-            .background(AppBackground)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(vertical = 16.dp)
-        ) {
-            content()
-        }
-    }
-}
-
-@Composable
-private val BorderSubtle = TextTertiary
-
-@Composable
-fun ServerStatusCard(
-    serverAddress: String?,
-    claudeVersion: String?,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = CardSurface)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = GreenSuccess,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "已连接",
-                    color = GreenSuccess,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Default.Dns,
-                    contentDescription = null,
-                    tint = TextSecondary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = serverAddress ?: "",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
-            }
-            claudeVersion?.let { version ->
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Claude Code v$version",
-                        color = TextSecondary,
-                        fontSize = 13.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun QrScannerOverlay(
-    hasPermission: Boolean,
-    onQrCodeDetected: (String) -> Unit,
-    onRequestPermission: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.92f))
-    ) {
-        if (hasPermission) {
-            QrCameraScanner(
-                onQrCodeDetected = onQrCodeDetected,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Overlay UI
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Top bar with close button
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "扫描二维码",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "关闭",
-                            tint = Color.White
+                Column(modifier = Modifier.weight(1f)) {
+                    uiState.bridges.forEach { bridge ->
+                        BridgeCard(
+                            bridge = bridge,
+                            isConnecting = uiState.isConnecting && uiState.selectedBridgeId == bridge.id,
+                            onClick = {
+                                authBridgeId = bridge.id
+                                authBridgeName = bridge.deviceName
+                                showAuthDialog = true
+                            }
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
-
+            } else if (!uiState.isDiscovering && uiState.error == null && uiState.serverAddress.isNotBlank()) {
+                // Empty state - prompt to discover
                 Spacer(modifier = Modifier.weight(1f))
-
-                // Scanning frame
-                Box(
-                    modifier = Modifier
-                        .size(260.dp)
-                        .border(3.dp, BubbleGradientStart, RoundedCornerShape(16.dp))
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
                 Text(
-                    text = "将二维码放入框内，即可自动扫描",
-                    color = Color.White.copy(alpha = 0.7f),
+                    text = "输入服务器地址后点击\"发现设备\"",
+                    color = TextTertiary,
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center
                 )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "手动输入地址",
-                    color = BubbleGradientStart,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.clickable { onDismiss() }
-                )
-
-                Spacer(modifier = Modifier.height(40.dp))
             }
-        } else {
-            // No camera permission
-            Column(
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        // Auth code dialog
+        AnimatedVisibility(
+            visible = showAuthDialog,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            AuthCodeDialog(
+                bridgeName = authBridgeName,
+                isConnecting = uiState.isConnecting,
+                onConfirm = { code ->
+                    viewModel.connectToBridge(authBridgeId, code)
+                },
+                onDismiss = {
+                    showAuthDialog = false
+                    viewModel.clearError()
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun BridgeCard(
+    bridge: BridgeInfo,
+    isConnecting: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(enabled = !isConnecting) { onClick() },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Device icon
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(BubbleGradientStart.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    Icons.Default.CameraAlt,
+                    Icons.Default.Computer,
                     contentDescription = null,
-                    tint = TextTertiary,
-                    modifier = Modifier.size(64.dp)
+                    tint = BubbleGradientStart,
+                    modifier = Modifier.size(22.dp)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "需要相机权限才能扫描二维码",
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = onRequestPermission,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart)
-                ) {
-                    Text("授予权限", color = TextOnBubble)
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = bridge.deviceName,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp
+                    )
+                    if (bridge.bridgeConnected) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = GreenSuccess,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "返回手动输入",
+                    text = bridge.workDir,
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+                Text(
+                    text = bridge.mode.uppercase(),
+                    color = TextTertiary,
+                    fontSize = 11.sp
+                )
+            }
+
+            if (isConnecting) {
+                CircularProgressIndicator(
                     color = BubbleGradientStart,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.clickable { onDismiss() }
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = "认证",
+                    tint = TextTertiary,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -544,29 +385,37 @@ fun QrScannerOverlay(
 }
 
 @Composable
-fun ManualInputOverlay(
-    onConnect: (String) -> Unit,
+private fun AuthCodeDialog(
+    bridgeName: String,
+    isConnecting: Boolean,
+    onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var inputText by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f))
-            .clickable(onClick = onDismiss),
+            .background(Color.Black.copy(alpha = 0.85f)),
         contentAlignment = Alignment.Center
     ) {
+        // Tap background to dismiss
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable { onDismiss() }
+        )
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(32.dp)
-                .clickable(enabled = false) { },
+                .padding(32.dp),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = CardSurface)
         ) {
             Column(
-                modifier = Modifier.padding(20.dp)
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -574,10 +423,10 @@ fun ManualInputOverlay(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "输入服务器地址",
-                        style = MaterialTheme.typography.titleLarge,
+                        text = "输入认证码",
+                        color = TextPrimary,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        fontSize = 18.sp
                     )
                     IconButton(onClick = onDismiss) {
                         Icon(
@@ -588,135 +437,61 @@ fun ManualInputOverlay(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text(
-                            "http://192.168.1.100:8080 或 btelo://...",
-                            color = TextSecondary.copy(alpha = 0.5f)
-                        )
-                    },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = BubbleGradientStart,
-                        unfocusedBorderColor = TextTertiary,
-                        cursorColor = BubbleGradientStart
-                    ),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Done
-                    ),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "连接至: $bridgeName",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
+
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { if (it.length <= 6) code = it.filter { c -> c.isDigit() } },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("000000", color = TextTertiary, fontSize = 24.sp, textAlign = TextAlign.Center) },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.headlineLarge.copy(
+                        textAlign = TextAlign.Center,
+                        letterSpacing = 8.sp,
+                        fontSize = 28.sp,
+                        color = TextPrimary
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = BubbleGradientStart,
+                        unfocusedBorderColor = TextTertiary.copy(alpha = 0.3f),
+                        focusedTextColor = TextPrimary
+                    ),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(14.dp)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
-                    onClick = { onConnect(inputText) },
+                    onClick = { if (code.length == 6) onConfirm(code) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart),
-                    enabled = inputText.isNotBlank()
+                    enabled = code.length == 6 && !isConnecting
                 ) {
-                    Text("连接", color = TextOnBubble, fontWeight = FontWeight.SemiBold)
+                    if (isConnecting) {
+                        CircularProgressIndicator(
+                            color = TextOnBubble,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("验证中...", color = TextOnBubble, fontSize = 15.sp)
+                    } else {
+                        Text("连接", color = TextOnBubble, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-fun QrCameraScanner(
-    onQrCodeDetected: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
-    val barcodeScanner = remember { BarcodeScanning.getClient() }
-    var lastScanned by remember { mutableStateOf("") }
-
-    AndroidView(
-        factory = { ctx ->
-            val previewView = PreviewView(ctx)
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-
-            cameraProviderFuture.addListener({
-                val cameraProvider = cameraProviderFuture.get()
-
-                val preview = Preview.Builder().build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
-
-                val imageAnalysis = ImageAnalysis.Builder()
-                    .setTargetResolution(Size(1280, 720))
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .build()
-                    .also { analysis ->
-                        analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                            processImage(imageProxy, barcodeScanner) { qrContent ->
-                                if (qrContent != null && qrContent != lastScanned) {
-                                    lastScanned = qrContent
-                                    onQrCodeDetected(qrContent)
-                                }
-                            }
-                        }
-                    }
-
-                try {
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
-                        preview,
-                        imageAnalysis
-                    )
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }, ContextCompat.getMainExecutor(ctx))
-
-            previewView
-        },
-        modifier = modifier
-    )
-}
-
-private fun processImage(
-    imageProxy: ImageProxy,
-    barcodeScanner: com.google.mlkit.vision.barcode.BarcodeScanner,
-    onResult: (String?) -> Unit
-) {
-    val mediaImage = imageProxy.image
-    if (mediaImage != null) {
-        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-        barcodeScanner.process(image)
-            .addOnSuccessListener { barcodes ->
-                for (barcode in barcodes) {
-                    val rawValue = barcode.rawValue
-                    if (rawValue != null && barcode.valueType == Barcode.TYPE_URL ||
-                        rawValue != null && rawValue.startsWith("btelo://")
-                    ) {
-                        onResult(rawValue)
-                        break
-                    } else if (rawValue != null) {
-                        onResult(rawValue)
-                        break
-                    }
-                }
-            }
-            .addOnCompleteListener {
-                imageProxy.close()
-            }
-    } else {
-        imageProxy.close()
     }
 }

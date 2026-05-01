@@ -394,8 +394,10 @@ app.post('/api/hooks/permission-response', (req, res) => {
     return res.status(400).json({ error: 'session_id and decision required' });
   }
 
-  const permFile = `/tmp/btelo-permission-${session_id}`;
+  const permDir = path.join(os.homedir(), '.btelo', 'permissions');
+  const permFile = path.join(permDir, `btelo-permission-${session_id}`);
   try {
+    fs.mkdirSync(permDir, { recursive: true });
     fs.writeFileSync(permFile, decision);
     console.log(`[HOOK] Permission response: ${decision} for session ${session_id}`);
     res.json({ success: true });
@@ -479,7 +481,9 @@ function handleWsMessage(ws, msg, session, sessionId) {
       // Mobile client responding to a permission request
       console.log(`[WS] Permission response: ${msg.decision} for session ${msg.session_id}`);
       try {
-        const permFile = `/tmp/btelo-permission-${msg.session_id}`;
+        const permDir = path.join(os.homedir(), '.btelo', 'permissions');
+        const permFile = path.join(permDir, `btelo-permission-${msg.session_id}`);
+        fs.mkdirSync(permDir, { recursive: true });
         fs.writeFileSync(permFile, msg.decision || 'deny');
       } catch (e) {
         console.error(`[WS] Failed to write permission response:`, e.message);

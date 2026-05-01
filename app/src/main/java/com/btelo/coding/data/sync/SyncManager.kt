@@ -264,8 +264,8 @@ class SyncManager @Inject constructor(
                                     isSynced = true,
                                     isDeleted = false
                                 )
-                                messageDao.insertMessage(entity)
-                                totalSynced++
+                                try { messageDao.insertMessage(entity); totalSynced++ }
+                                catch (e: Exception) { Logger.e(TAG, "Sync insert failed: ${e.message}") }
                             }
                         }
                         

@@ -131,6 +131,8 @@ class EnhancedWebSocketClient(
                 scope.launch {
                     _events.emit(WebSocketEvent.Connected(config.sessionId))
                 }
+
+                startKeyRotationCheck()
             }
             
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -244,6 +246,8 @@ class EnhancedWebSocketClient(
                     _messages.tryEmit(message)
                 }
             }
+            is BteloMessage.StructuredOutput -> _messages.tryEmit(message)
+            is BteloMessage.SessionState -> _messages.tryEmit(message)
         }
     }
     

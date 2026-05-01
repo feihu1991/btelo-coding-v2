@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Overview
 
-BTELO Coding is a mobile-to-desktop bridge: the Android app connects to a Node.js relay server running on the same machine as Claude Code CLI, allowing users to interact with Claude Code sessions from their phone via WebSocket.
+BTELO Coding is a mobile-to-desktop bridge: the Android app connects to a Node.js relay server running on the same machine as Codex CLI, allowing users to interact with Codex sessions from their phone via WebSocket.
 
 ## Build & Run
 
@@ -33,7 +33,7 @@ Test framework: JUnit 4.13.2 + MockK 1.13.9 + kotlinx-coroutines-test 1.7.3.
 # Start relay server (port 8080, override with PORT env var)
 cd server && npm start
 
-# Start bridge CLI (resume mode — spawns claude -p per command)
+# Start bridge CLI (resume mode — spawns Codex -p per command)
 npm run bridge -- --workdir /path/to/project
 
 # Start bridge in PTY mode (interactive pseudo-terminal via node-pty)
@@ -46,22 +46,14 @@ node server/restart.js
 node server/output-parser.js
 ```
 
-Environment variables: `PORT` (default 8080), `PUBLIC_IP` (for remote access), `RELAY_SERVER` (default http://localhost:8080).
+Environment variables: `PORT` (default 8080), `PUBLIC_IP` (for remote access QR), `RELAY_SERVER` (default http://localhost:8080).
 
-### Connection flow (auth code)
-
-1. Bridge starts → generates 6-digit auth code → registers with relay
-2. Mobile app opens → user enters relay server address → taps "发现设备"
-3. Mobile discovers bridges via `GET /bridges` → user selects bridge → enters 6-digit auth code
-4. Relay validates auth code → returns WebSocket token → mobile connects via `/ws?token=`
-5. Bridge auto-discovers Claude Code sessions from `~/.claude/sessions/`, reads JSONL history
-
-Real-time output: bridge watches `~/.claude/projects/<encoded-path>/<sessionId>.jsonl` via `fs.watch` (100ms debounce), streams new messages to mobile.
+The server auto-discovers Codex interactive sessions from `~/.Codex/sessions/`, presents them to the mobile client, and relays commands/responses in real time by watching `~/.Codex/projects/<encoded-path>/<sessionId>.jsonl` via `fs.watch` (100ms debounce).
 
 ### Bridge modes
 
-- **Resume** (default, `bridge.js`): Spawns `claude -p <cmd> -r <sessionId> --output-format stream-json` per command. Good for quick commands.
-- **PTY** (`pty-bridge.js`): Uses `node-pty` (optional dep) for an interactive pseudo-terminal. Falls back to `spawn`. Supports terminal resize via `pty_resize` messages. Auto-selects the best matching Claude session on startup.
+- **Resume** (default, `bridge.js`): Spawns `Codex -p <cmd> -r <sessionId> --output-format stream-json` per command. Good for quick commands.
+- **PTY** (`pty-bridge.js`): Uses `node-pty` (optional dep) for an interactive pseudo-terminal. Falls back to `spawn`. Supports terminal resize via `pty_resize` messages.
 
 ## Architecture
 
@@ -86,12 +78,12 @@ Real-time output: bridge watches `~/.claude/projects/<encoded-path>/<sessionId>.
 │                                                                      │
 │  DI: Hilt (AppModule.kt provides all singletons)                    │
 │  Push: Firebase Cloud Messaging (FcmTokenManager)                   │
-│  Auth: 6-digit auth code via manual entry                             │
+│  QR Scan: CameraX + ML Kit Barcode Scanning                          │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Key libraries: Compose BOM 2024.02, Hilt 2.50, Room 2.6.1, OkHttp 4.12, Tink 1.12 (crypto), Retrofit 2.9
+Key libraries: Compose BOM 2024.02, Hilt 2.50, Room 2.6.1, OkHttp 4.12, Tink 1.12 (crypto), Retrofit 2.9, CameraX 1.3.1, ML Kit 17.2
 
 ## Key patterns
 
@@ -100,12 +92,12 @@ Key libraries: Compose BOM 2024.02, Hilt 2.50, Room 2.6.1, OkHttp 4.12, Tink 1.1
 
   | Type | Direction | Purpose |
   |------|-----------|---------|
-  | `command` | Mobile → Bridge | User command to Claude Code |
+  | `command` | Mobile → Bridge | User command to Codex |
   | `output` | Bridge → Mobile | Raw CLI stdout/stderr |
   | `structured_output` | Bridge → Mobile | Parsed stream-json (6 subtypes) |
   | `sync_history` | Bridge → Mobile | Bulk history from session JSONL |
   | `new_message` | Bridge → Mobile | Real-time message from JSONL watcher |
-  | `select_session` | Mobile → Bridge | Switch to specific Claude session |
+  | `select_session` | Mobile → Bridge | Switch to specific Codex session |
   | `status` | Bidirectional | Connection state changes |
   | `session_state` | Bidirectional | Peer connection state broadcast |
   | `publicKey` | Bidirectional | E2E encryption key exchange |
@@ -113,7 +105,7 @@ Key libraries: Compose BOM 2024.02, Hilt 2.50, Room 2.6.1, OkHttp 4.12, Tink 1.1
   | `encryptedData` | Bidirectional | E2E encrypted payload with key version |
   | `ping`/`pong` | Transport | Heartbeat (30s interval) |
 
-- **Structured output** (`output-parser.js` → `structured_output` messages): Parses Claude Code `stream-json` into 6 `OutputType` subtypes, each rendered differently in `MessageBubble.kt`:
+- **Structured output** (`output-parser.js` → `structured_output` messages): Parses Codex `stream-json` into 6 `OutputType` subtypes, each rendered differently in `MessageBubble.kt`:
 
   | OutputType | Render style |
   |------------|-------------|
@@ -129,11 +121,9 @@ Key libraries: Compose BOM 2024.02, Hilt 2.50, Room 2.6.1, OkHttp 4.12, Tink 1.1
 - **Navigation**: Compose Navigation with sealed `Screen` class — `Scan` and `Chat/{sessionId}`. Start destination is always `Scan`.
 - **Room DB** version 3: sessions, messages, devices tables. Migrations: v1→v2 (key version fields), v2→v3 (PRD model fields).
 - **Server API** (Express on port 8080):
-  - `POST /bridge/register` → bridge registration with 6-digit `auth_code`, returns connect + bridge tokens
-  - `GET /bridges` → list registered bridges (for mobile discovery)
-  - `POST /bridges/:id/connect` → mobile authenticates via `auth_code`, returns WS token
-  - `GET /connect?token=` → legacy token-based mobile auth (auth code is preferred)
-  - `GET /sessions` → list Claude Code sessions on this machine
+  - `POST /bridge/register` → bridge registration, returns connect + bridge tokens
+  - `GET /connect?token=` → mobile client auth, returns WebSocket URL + token
+  - `GET /sessions` → list Codex sessions on this machine
   - `GET /status` → health check
   - `GET`/`POST /restart` → server restart
   - `WebSocket /ws?token=` → mobile client channel

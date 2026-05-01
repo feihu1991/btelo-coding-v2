@@ -11,6 +11,7 @@ import com.btelo.coding.domain.model.OutputType as DomainOutputType
 import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.domain.repository.SessionRepository
+import com.btelo.coding.util.Logger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -67,14 +68,27 @@ class ChatViewModel @Inject constructor(
     private val coroutineJobs = mutableListOf<Job>()
 
     fun setSessionId(id: String) {
-        sessionId = id
+        val effectiveId = if (id.isBlank()) {
+            // Fallback: try DataStore directly for the session ID
+            val saved = dataStoreManager.getSessionIdSync()
+            Logger.w("ChatVM", "setSessionId called with blank id, fallback from store: $saved")
+            saved ?: return
+        } else {
+            id
+        }
+
+        if (effectiveId.isBlank()) return
+        sessionId = effectiveId
+
         val job = viewModelScope.launch {
+            sessionRepository.createSessionWithId(effectiveId, "Claude Code", "claude")
+
             val serverAddress = authRepository.getServerAddress().firstOrNull() ?: ""
-            val wsToken = authRepository.getWsTokenSync()
-            val authToken = authRepository.getTokenSync()
+            val wsToken = dataStoreManager.getWsTokenSync()
+            val authToken = dataStoreManager.getTokenSync()
             val token = wsToken ?: authToken ?: ""
             if (serverAddress.isNotBlank() && token.isNotBlank()) {
-                messageRepository.connect(serverAddress, token, sessionId)
+                messageRepository.connect(serverAddress, token, effectiveId)
             }
         }
         coroutineJobs.add(job)

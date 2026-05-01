@@ -6,6 +6,7 @@ import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.domain.repository.SessionRepository
 import com.btelo.coding.util.Logger
 import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,53 +14,50 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
 data class ScanUiState(
+    val serverAddress: String = "",
+    val isDiscovering: Boolean = false,
     val isConnecting: Boolean = false,
     val isConnected: Boolean = false,
     val error: String? = null,
-    val serverAddress: String? = null,
+    val bridges: List<BridgeInfo> = emptyList(),
+    val selectedBridgeId: String? = null,
     val sessionId: String? = null,
-    val wsToken: String? = null,
-    val claudeVersion: String? = null,
-    val remoteSessions: List<RemoteSession> = emptyList()
+    val wsToken: String? = null
 )
 
-data class RemoteSession(
-    val session_id: String,
-    val cwd: String,
-    val is_alive: Boolean,
-    val message_count: Int,
-    val last_message: LastMessageInfo?
+data class BridgeInfo(
+    val id: String,
+    @field:SerializedName("device_name") val deviceName: String,
+    @field:SerializedName("work_dir") val workDir: String,
+    val mode: String,
+    @field:SerializedName("bridge_connected") val bridgeConnected: Boolean,
+    @field:SerializedName("mobile_connected") val mobileConnected: Boolean
 )
 
-data class LastMessageInfo(
-    val content: String,
-    val timestamp: Long
-)
-
-data class ConnectResponse(
+data class BridgesResponse(
     val success: Boolean,
-    val session_id: String,
-    val ws_token: String,
-    val ws_url: String,
-    val server_address: String,
-    val claude_code: ClaudeCodeInfo?,
-    val available_sessions: List<RemoteSession>?
+    val bridges: List<BridgeInfo>
 )
 
-data class ClaudeCodeInfo(
-    val installed: Boolean,
-    val path: String?,
-    val version: String?
-)
-
-data class SessionsResponse(
+data class BridgeConnectResponse(
     val success: Boolean,
-    val sessions: List<RemoteSession>
+    @field:SerializedName("session_id") val sessionId: String,
+    @field:SerializedName("ws_token") val wsToken: String,
+    @field:SerializedName("ws_url") val wsUrl: String,
+    @field:SerializedName("bridge_info") val bridgeInfo: BridgeInfoRaw?
+)
+
+data class BridgeInfoRaw(
+    @field:SerializedName("device_name") val deviceName: String,
+    @field:SerializedName("work_dir") val workDir: String,
+    val mode: String
 )
 
 @HiltViewModel
@@ -74,208 +72,119 @@ class ScanViewModel @Inject constructor(
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
 
     init {
-        checkSavedConnection()
+        loadSavedServerAddress()
     }
 
-    private fun checkSavedConnection() {
+    private fun loadSavedServerAddress() {
         viewModelScope.launch {
-            val serverAddress = dataStoreManager.getServerAddressSync()
-            val wsToken = dataStoreManager.getWsTokenSync()
-            if (serverAddress != null && wsToken != null) {
+            val saved = dataStoreManager.getServerAddressSync()
+            if (saved != null) {
+                _uiState.value = _uiState.value.copy(serverAddress = saved)
+            }
+        }
+    }
+
+    fun setServerAddress(address: String) {
+        _uiState.value = _uiState.value.copy(serverAddress = address.trimEnd('/'))
+    }
+
+    fun discoverBridges() {
+        val server = _uiState.value.serverAddress.ifBlank {
+            _uiState.value = _uiState.value.copy(error = "请输入服务器地址")
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(isDiscovering = true, error = null, bridges = emptyList())
+
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val request = Request.Builder()
+                        .url("$server/bridges")
+                        .get()
+                        .build()
+                    okHttpClient.newCall(request).execute().body?.string() ?: ""
+                }
+
+                val resp = gson.fromJson(result, BridgesResponse::class.java)
+                if (resp != null && resp.success) {
+                    dataStoreManager.saveServerAddress(server)
+                    _uiState.value = _uiState.value.copy(
+                        isDiscovering = false,
+                        bridges = resp.bridges
+                    )
+                    Logger.i("ScanVM", "Found ${resp.bridges.size} bridge(s)")
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isDiscovering = false,
+                        error = "未发现可用设备"
+                    )
+                }
+            } catch (e: Exception) {
+                Logger.e("ScanVM", "Discover failed", e)
                 _uiState.value = _uiState.value.copy(
-                    isConnected = true,
-                    serverAddress = serverAddress,
-                    wsToken = wsToken
+                    isDiscovering = false,
+                    error = "无法连接服务器: ${e.message}"
                 )
             }
         }
     }
 
-    fun onQrCodeScanned(qrContent: String) {
-        if (_uiState.value.isConnecting || _uiState.value.isConnected) return
+    fun connectToBridge(bridgeId: String, authCode: String) {
+        val server = _uiState.value.serverAddress
+        if (server.isBlank()) return
 
-        Logger.i("ScanVM", "QR scanned: $qrContent")
-
-        val parsed = parseQrCode(qrContent)
-        if (parsed == null) {
-            _uiState.value = _uiState.value.copy(error = "Invalid QR code format")
-            return
-        }
-
-        val (host, port, token) = parsed
-        val serverUrl = "http://$host:$port"
-
-        connect(serverUrl, token)
-    }
-
-    fun connectManually(url: String) {
-        if (_uiState.value.isConnecting || _uiState.value.isConnected) return
-
-        val parsed = parseQrCode(url)
-        if (parsed != null) {
-            val (host, port, token) = parsed
-            connect("http://$host:$port", token)
-            return
-        }
-
-        if (url.startsWith("http://") || url.startsWith("https://")) {
-            val cleanUrl = url.trimEnd('/')
-            val pathParts = cleanUrl.substringAfter("://").split("/", limit = 2)
-            val hostPort = pathParts[0]
-            val pathToken = pathParts.getOrNull(1)
-
-            if (pathToken != null && pathToken.isNotBlank()) {
-                val scheme = if (url.startsWith("https://")) "https" else "http"
-                connect("$scheme://$hostPort", pathToken)
-            } else {
-                connect(cleanUrl, null)
-            }
-            return
-        }
-
-        _uiState.value = _uiState.value.copy(error = "Invalid URL format")
-    }
-
-    private fun connect(serverAddress: String, token: String?) {
-        _uiState.value = _uiState.value.copy(isConnecting = true, error = null)
+        _uiState.value = _uiState.value.copy(
+            isConnecting = true,
+            error = null,
+            selectedBridgeId = bridgeId
+        )
 
         viewModelScope.launch {
             try {
-                val url = if (token != null) {
-                    "$serverAddress/connect?token=$token"
-                } else {
-                    "$serverAddress/connect"
-                }
-
+                val body = """{"auth_code":"$authCode"}"""
                 val result = withContext(Dispatchers.IO) {
                     val request = Request.Builder()
-                        .url(url)
-                        .get()
+                        .url("$server/bridges/$bridgeId/connect")
+                        .post(body.toRequestBody("application/json".toMediaType()))
                         .build()
-                    val response = okHttpClient.newCall(request).execute()
-                    response.body?.string() ?: ""
+                    okHttpClient.newCall(request).execute().body?.string() ?: ""
                 }
 
-                val connectResp = try {
-                    gson.fromJson(result, ConnectResponse::class.java)
-                } catch (e: Exception) {
-                    null
-                }
-
-                if (connectResp != null && connectResp.success) {
-                    dataStoreManager.saveServerAddress(serverAddress)
-                    dataStoreManager.saveWsToken(connectResp.ws_token)
-                    dataStoreManager.saveSessionId(connectResp.session_id)
-
-                    val sessions = connectResp.available_sessions ?: emptyList()
-
-                    // Auto-select session: prefer active, then most recent
-                    val selectedSessionId = autoSelectSession(sessions) ?: connectResp.session_id
+                val resp = gson.fromJson(result, BridgeConnectResponse::class.java)
+                if (resp != null && resp.success) {
+                    dataStoreManager.saveWsToken(resp.wsToken)
+                    dataStoreManager.saveSessionId(resp.sessionId)
 
                     sessionRepository.createSessionWithId(
-                        sessionId = selectedSessionId,
-                        name = "Claude Code",
+                        sessionId = resp.sessionId,
+                        name = resp.bridgeInfo?.deviceName ?: "Claude Code",
                         tool = "claude"
                     )
 
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
                         isConnected = true,
-                        serverAddress = serverAddress,
-                        sessionId = selectedSessionId,
-                        wsToken = connectResp.ws_token,
-                        claudeVersion = connectResp.claude_code?.version,
-                        remoteSessions = sessions
+                        sessionId = resp.sessionId,
+                        wsToken = resp.wsToken
                     )
-                    Logger.i("ScanVM", "Connected to $serverAddress, selected session: $selectedSessionId")
-                } else if (token == null) {
-                    tryConnectStatus(serverAddress)
+                    Logger.i("ScanVM", "Connected to bridge $bridgeId")
                 } else {
                     _uiState.value = _uiState.value.copy(
                         isConnecting = false,
-                        error = "Connection failed: invalid token or server error"
+                        selectedBridgeId = null,
+                        error = "认证失败: 验证码不正确"
                     )
                 }
             } catch (e: Exception) {
-                Logger.e("ScanVM", "Connection failed", e)
+                Logger.e("ScanVM", "Connect failed", e)
                 _uiState.value = _uiState.value.copy(
                     isConnecting = false,
-                    error = "Connection failed: ${e.message}"
+                    selectedBridgeId = null,
+                    error = "连接失败: ${e.message}"
                 )
             }
         }
-    }
-
-    /**
-     * Auto-select a session from available sessions
-     * Priority: active sessions > most messages > first available
-     */
-    private fun autoSelectSession(sessions: List<RemoteSession>): String? {
-        if (sessions.isEmpty()) return null
-
-        // First, try to find an active session with most messages
-        val activeSessions = sessions.filter { it.is_alive }
-        if (activeSessions.isNotEmpty()) {
-            return activeSessions.maxByOrNull { it.message_count }?.session_id
-        }
-
-        // Fallback: most messages overall
-        return sessions.maxByOrNull { it.message_count }?.session_id
-    }
-
-    private suspend fun tryConnectStatus(serverAddress: String) {
-        try {
-            val result = withContext(Dispatchers.IO) {
-                val request = Request.Builder()
-                    .url("$serverAddress/status")
-                    .get()
-                    .build()
-                val response = okHttpClient.newCall(request).execute()
-                response.body?.string() ?: ""
-            }
-
-            val statusResp = try {
-                gson.fromJson(result, com.google.gson.JsonObject::class.java)
-            } catch (e: Exception) {
-                null
-            }
-
-            if (statusResp != null && statusResp.has("success") && statusResp.get("success").asBoolean) {
-                _uiState.value = _uiState.value.copy(
-                    isConnecting = false,
-                    error = "Server is reachable. Scan QR code or enter a connection token."
-                )
-            } else {
-                _uiState.value = _uiState.value.copy(
-                    isConnecting = false,
-                    error = "Server responded but no token provided. Scan QR code to get a token."
-                )
-            }
-        } catch (e: Exception) {
-            _uiState.value = _uiState.value.copy(
-                isConnecting = false,
-                error = "Cannot reach server at $serverAddress: ${e.message}"
-            )
-        }
-    }
-
-    private fun parseQrCode(content: String): Triple<String, Int, String>? {
-        if (!content.startsWith("btelo://")) return null
-
-        val withoutProtocol = content.removePrefix("btelo://")
-        val parts = withoutProtocol.split("/", limit = 2)
-        if (parts.size != 2) return null
-
-        val hostPort = parts[0]
-        val token = parts[1]
-
-        val hostPortParts = hostPort.split(":", limit = 2)
-        if (hostPortParts.size != 2) return null
-
-        val host = hostPortParts[0]
-        val port = hostPortParts[1].toIntOrNull() ?: return null
-
-        return Triple(host, port, token)
     }
 
     fun clearError() {
@@ -285,7 +194,7 @@ class ScanViewModel @Inject constructor(
     fun disconnect() {
         viewModelScope.launch {
             dataStoreManager.clearConnection()
-            _uiState.value = ScanUiState()
+            _uiState.value = ScanUiState(serverAddress = _uiState.value.serverAddress)
         }
     }
 }

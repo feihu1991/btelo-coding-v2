@@ -23,9 +23,18 @@ PAYLOAD=$(jq -nc \
 
 btelo-notify "permission_request" "$PAYLOAD"
 
+# Fast-fail: check if relay server is reachable before blocking
+RELAY_URL="${BTELO_SERVER_URL:-http://localhost:8080}/status"
+if ! curl -s --connect-timeout 3 --max-time 5 "$RELAY_URL" >/dev/null 2>&1; then
+    echo "Relay server unreachable at $RELAY_URL, denying by default" >&2
+    exit 1
+fi
+
 # Write a file to signal that permission was requested
-# The server will write the response to /tmp/btelo-permission-{session_id}
-PERM_FILE="/tmp/btelo-permission-${SESSION_ID}"
+# The server will write the response to $HOME/.btelo/permissions/
+PERM_DIR="$HOME/.btelo/permissions"
+mkdir -p "$PERM_DIR"
+PERM_FILE="$PERM_DIR/btelo-permission-${SESSION_ID}"
 echo "pending" > "$PERM_FILE"
 
 # Poll for response (timeout 120 seconds)

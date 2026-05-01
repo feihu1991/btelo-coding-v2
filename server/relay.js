@@ -24,6 +24,8 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { WebSocketServer } = require('ws');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const os = require('os');
 
 const app = express();
@@ -111,7 +113,11 @@ function forwardMessage(targetWs, senderWs, rawMessage, messageType) {
 // API: Bridge registers itself
 // ============================================================
 app.post('/bridge/register', (req, res) => {
-  const { device_name, work_dir, mode } = req.body;
+  const { device_name, work_dir, mode, auth_code } = req.body;
+
+  if (!auth_code || auth_code.length !== 6) {
+    return res.status(400).json({ error: 'auth_code (6 digits) required' });
+  }
 
   const sessionId = 'sess-' + uuidv4().substring(0, 8);
   const connectToken = 'connect-' + crypto.randomBytes(16).toString('hex');
@@ -123,9 +129,10 @@ app.post('/bridge/register', (req, res) => {
     bridgeWs: null,
     connectToken,
     bridgeToken,
+    authCode: auth_code,
     createdAt: Date.now(),
-    bridgeInfo: { 
-      device_name: device_name || 'unknown', 
+    bridgeInfo: {
+      device_name: device_name || 'unknown',
       work_dir: work_dir || process.cwd(),
       mode: mode || 'resume'
     },
@@ -140,7 +147,7 @@ app.post('/bridge/register', (req, res) => {
   const localIP = getLocalIP();
   const PORT = process.env.PORT || 8080;
 
-  console.log(`[RELAY] Bridge registered: ${sessionId} (${device_name || 'unknown'}, mode: ${mode || 'resume'})`);
+  console.log(`[RELAY] Bridge registered: ${sessionId} (${device_name || 'unknown'}, auth: ${auth_code})`);
 
   res.json({
     success: true,
@@ -153,7 +160,7 @@ app.post('/bridge/register', (req, res) => {
 });
 
 // ============================================================
-// API: Mobile connects via QR code token
+// API: Mobile connects via token (legacy QR flow, auth code is preferred)
 // ============================================================
 app.get('/connect', (req, res) => {
   const { token } = req.query;
@@ -209,6 +216,111 @@ app.get('/sessions', (req, res) => {
     });
   }
   res.json({ success: true, sessions: list });
+});
+
+// ============================================================
+// API: List available bridges (for mobile discovery)
+// ============================================================
+app.get('/bridges', (req, res) => {
+  const list = [];
+  for (const [id, s] of sessions) {
+    // Only show bridges that have registered (bridgeWs may not be connected yet)
+    list.push({
+      id: id,
+      device_name: s.bridgeInfo?.device_name || 'unknown',
+      work_dir: s.bridgeInfo?.work_dir || '',
+      mode: s.bridgeInfo?.mode || 'resume',
+      bridge_connected: s.bridgeWs !== null,
+      mobile_connected: s.mobileWs !== null,
+      created_at: s.createdAt
+    });
+  }
+  res.json({ success: true, bridges: list });
+});
+
+// ============================================================
+// API: Mobile connects to bridge via auth code
+// ============================================================
+app.post('/bridges/:id/connect', (req, res) => {
+  const { id } = req.params;
+  const { auth_code } = req.body;
+
+  if (!auth_code) {
+    return res.status(400).json({ error: 'auth_code required' });
+  }
+
+  const session = sessions.get(id);
+  if (!session) {
+    return res.status(404).json({ error: 'Bridge not found' });
+  }
+
+  if (session.authCode !== auth_code) {
+    return res.status(401).json({ error: 'Invalid auth code' });
+  }
+
+  // Generate WebSocket token for mobile client
+  const wsToken = 'ws-' + crypto.randomBytes(16).toString('hex');
+  tokens.set(wsToken, { type: 'mobile_ws', sessionId: session.sessionId, createdAt: Date.now() });
+
+  const localIP = getLocalIP();
+  const PORT = process.env.PORT || 8080;
+
+  console.log(`[RELAY] Mobile authenticated to bridge ${id} via auth code`);
+
+  res.json({
+    success: true,
+    session_id: session.sessionId,
+    ws_token: wsToken,
+    ws_url: `ws://${localIP}:${PORT}/ws?token=${wsToken}`,
+    bridge_info: session.bridgeInfo
+  });
+});
+
+// ============================================================
+// API: Hook Callback — receives events from btelo-plugin
+// ============================================================
+app.post('/api/hooks/callback', (req, res) => {
+  const { event, session_id, ...data } = req.body;
+
+  if (!event) {
+    return res.status(400).json({ error: 'event field required' });
+  }
+
+  console.log(`[HOOK] Event: ${event}, Session: ${session_id || 'unknown'}`);
+
+  // Forward to connected mobile client
+  for (const [id, session] of sessions) {
+    if (session.mobileWs && session.mobileWs.readyState === 1) {
+      session.mobileWs.send(JSON.stringify({
+        type: 'hook_event',
+        event: event,
+        data: { session_id, ...data },
+        timestamp: Date.now()
+      }));
+    }
+  }
+
+  res.json({ success: true, event });
+});
+
+// Permission response — mobile client approves/denies a permission request
+app.post('/api/hooks/permission-response', (req, res) => {
+  const { session_id, decision } = req.body;
+
+  if (!session_id || !decision) {
+    return res.status(400).json({ error: 'session_id and decision required' });
+  }
+
+  const permDir = path.join(os.homedir(), '.btelo', 'permissions');
+  const permFile = path.join(permDir, `btelo-permission-${session_id}`);
+  try {
+    fs.mkdirSync(permDir, { recursive: true });
+    fs.writeFileSync(permFile, decision);
+    console.log(`[HOOK] Permission response: ${decision} for session ${session_id}`);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ============================================================

@@ -113,6 +113,7 @@ class MessageRepositoryImpl @Inject constructor(
      * Dispatches to appropriate handlers based on message type
      */
     private suspend fun handleMessage(message: BteloMessage, sessionId: String) {
+        try {
         when (message) {
             is BteloMessage.Output -> {
                 val domainMessage = Message(
@@ -126,7 +127,7 @@ class MessageRepositoryImpl @Inject constructor(
                     timestamp = System.currentTimeMillis(),
                     isFromUser = false
                 )
-                messageDao.insertMessage(domainMessage.toEntity())
+                safeInsert("Output") { messageDao.insertMessage(domainMessage.toEntity()) }
             }
             
             is BteloMessage.SyncHistory -> {
@@ -142,7 +143,7 @@ class MessageRepositoryImpl @Inject constructor(
                         isFromUser = hm.isFromUser
                     )
                 }
-                messageDao.insertMessages(entities)
+                safeInsert("SyncHistory") { messageDao.insertMessages(entities) }
             }
             
             is BteloMessage.NewMessage -> {
@@ -156,9 +157,9 @@ class MessageRepositoryImpl @Inject constructor(
                     timestamp = message.message.timestamp,
                     isFromUser = message.message.isFromUser
                 )
-                messageDao.insertMessage(entity)
+                safeInsert("NewMessage") { messageDao.insertMessage(entity) }
             }
-            
+
             // BTELO Coding v2: Structured Output handling
             is BteloMessage.StructuredOutput -> {
                 Logger.d(tag, "收到结构化输出: ${message.outputType}")
@@ -210,7 +211,7 @@ class MessageRepositoryImpl @Inject constructor(
                 _structuredOutputFlow.emit(structuredMessage)
                 
                 // Also save to database for persistence
-                messageDao.insertMessage(structuredMessage.toEntity())
+                safeInsert("StructuredOutput") { messageDao.insertMessage(structuredMessage.toEntity()) }
             }
             
             is BteloMessage.SessionState -> {
@@ -219,6 +220,9 @@ class MessageRepositoryImpl @Inject constructor(
             }
             
             else -> { /* ignore other message types */ }
+        }
+        } catch (e: Exception) {
+            Logger.e(tag, "handleMessage error (sessionId=$sessionId): ${e.message}", e)
         }
     }
 
@@ -243,7 +247,7 @@ class MessageRepositoryImpl @Inject constructor(
                 timestamp = System.currentTimeMillis(),
                 isFromUser = true
             )
-            messageDao.insertMessage(userMessage.toEntity())
+            safeInsert("UserMessage") { messageDao.insertMessage(userMessage.toEntity()) }
             
             // 发送WebSocket消息
             webSocketFactory.sendMessage(
@@ -292,7 +296,15 @@ class MessageRepositoryImpl @Inject constructor(
     }
     
     override suspend fun saveMessage(message: Message) {
-        messageDao.insertMessage(message.toEntity())
+        safeInsert("SaveMessage") { messageDao.insertMessage(message.toEntity()) }
+    }
+
+    private suspend fun safeInsert(tag: String, block: suspend () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            Logger.e(this.tag, "[$tag] Insert failed: ${e.message}", e)
+        }
     }
     
     override fun disconnect(sessionId: String) {
