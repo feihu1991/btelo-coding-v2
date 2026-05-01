@@ -319,7 +319,8 @@ function watchJsonlFile(state, onNewMessage) {
           try {
             const entry = JSON.parse(line);
             const msg = parseJsonlEntry(entry);
-            if (msg) onNewMessage(msg);
+            // Only forward assistant messages - phone already shows user's own messages
+            if (msg && !msg.isFromUser) onNewMessage(msg);
           } catch (e) { /* skip bad lines */ }
         }
 
