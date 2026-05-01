@@ -68,7 +68,7 @@ fun InputBar(
             )
         }
 
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(modifier = Modifier.width(2.dp))
 
         // Text input
         TextField(
@@ -76,7 +76,6 @@ fun InputBar(
             onValueChange = onTextChange,
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 12.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(InputSurface, RoundedCornerShape(20.dp)),
             placeholder = {

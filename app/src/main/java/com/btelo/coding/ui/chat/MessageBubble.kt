@@ -521,28 +521,6 @@ private fun ActionButtonsRow(message: Message, clipboardManager: androidx.compos
                 modifier = Modifier.size(14.dp)
             )
         }
-        IconButton(
-            onClick = { /* TODO: retry */ },
-            modifier = Modifier.size(28.dp)
-        ) {
-            Icon(
-                Icons.Default.Refresh,
-                contentDescription = "重试",
-                tint = TextTertiary,
-                modifier = Modifier.size(14.dp)
-            )
-        }
-        IconButton(
-            onClick = { /* TODO: pin */ },
-            modifier = Modifier.size(28.dp)
-        ) {
-            Icon(
-                Icons.Default.PushPin,
-                contentDescription = "置顶",
-                tint = TextTertiary,
-                modifier = Modifier.size(14.dp)
-            )
-        }
     }
 }
 

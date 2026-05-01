@@ -441,9 +441,11 @@ function processConsoleQueue() {
   const { pid, text, state } = consoleQueue.shift();
   const scriptPath = path.join(__dirname, 'console-bridge', 'console-sender.ps1');
 
+  // Strip newlines to prevent Enter key from splitting the message in terminal
+  const cleanText = text.replace(/[\r\n]+/g, ' ').trim();
   // Write text to temp file to avoid CLI encoding issues with Chinese
   const tmpFile = path.join(os.tmpdir(), `btelo-input-${Date.now()}.txt`);
-  fs.writeFileSync(tmpFile, text, 'utf-8');
+  fs.writeFileSync(tmpFile, cleanText, 'utf-8');
 
   console.log(`[BRIDGE] Sending keystrokes to PID ${pid} (queue: ${consoleQueue.length})...`);
 
