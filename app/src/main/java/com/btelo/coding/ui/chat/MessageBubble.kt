@@ -47,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -610,11 +611,25 @@ fun AiStreamingBubble(partialContent: String) {
             ) {
                 if (partialContent == "…") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("●", color = BubbleGradientStart.copy(alpha = dotAlpha1), fontSize = 8.sp)
-                        Spacer(Modifier.width(4.dp))
-                        Text("●", color = BubbleGradientStart.copy(alpha = dotAlpha2), fontSize = 8.sp)
-                        Spacer(Modifier.width(4.dp))
-                        Text("●", color = BubbleGradientStart.copy(alpha = dotAlpha3), fontSize = 8.sp)
+                        val rotationAngle by infiniteTransition.animateFloat(
+                            initialValue = 0f, targetValue = 360f,
+                            animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Restart)
+                        )
+                        Icon(
+                            Icons.Default.Lightbulb,
+                            contentDescription = "Thinking",
+                            tint = ThinkingPurple,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .rotate(rotationAngle)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "深度思考中…",
+                            color = ThinkingPurple,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 } else {
                     Text(

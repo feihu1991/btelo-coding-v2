@@ -1,5 +1,9 @@
 package com.btelo.coding.ui.chat
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +62,14 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showDisconnectDialog by remember { mutableStateOf(false) }
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        selectedImageUri = uri
+        if (uri != null) viewModel.onImageSelected(uri.toString())
+    }
 
     LaunchedEffect(sessionId) {
         viewModel.setSessionId(sessionId)
@@ -160,7 +172,9 @@ fun ChatScreen(
                 text = uiState.inputText,
                 onTextChange = viewModel::updateInputText,
                 onSend = viewModel::sendMessage,
-                onAttachClick = { },
+                onAttachClick = { imagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                selectedImageUri = selectedImageUri,
+                onClearImage = { selectedImageUri = null; viewModel.onImageSelected("") },
                 modifier = Modifier.fillMaxWidth()
             )
         }

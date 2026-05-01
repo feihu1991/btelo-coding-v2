@@ -36,6 +36,7 @@ data class ChatUiState(
     val streamingContent: String = "",
     val isStreaming: Boolean = false,
     val sessionName: String = "Claude Code",
+    val selectedImageUri: String = "",
     
     // Structured output state
     val structuredOutputBuffer: StructuredOutputBuffer = StructuredOutputBuffer()
@@ -192,7 +193,7 @@ class ChatViewModel @Inject constructor(
                     parts = currentBuffer.parts + newPart,
                     isComplete = isComplete
                 ),
-                streamingContent = structuredMsg.content,
+                streamingContent = if (newPart.outputType == OutputType.THINKING) "…" else structuredMsg.content,
                 isStreaming = true
             )
         }
@@ -272,6 +273,10 @@ class ChatViewModel @Inject constructor(
             }
         }
         coroutineJobs.add(job)
+    }
+
+    fun onImageSelected(uri: String) {
+        _uiState.value = _uiState.value.copy(selectedImageUri = uri)
     }
 
     fun updateInputText(text: String) {

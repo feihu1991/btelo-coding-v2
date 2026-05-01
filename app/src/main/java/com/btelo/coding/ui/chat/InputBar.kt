@@ -3,6 +3,7 @@ package com.btelo.coding.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -42,12 +44,33 @@ fun InputBar(
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onAttachClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedImageUri: android.net.Uri? = null,
+    onClearImage: () -> Unit = {}
 ) {
-    val hasText = text.isNotBlank()
+    val hasText = text.isNotBlank() || selectedImageUri != null
     val inputShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
 
-    Row(
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Selected image preview
+        if (selectedImageUri != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(InputSurface, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Spacer(Modifier.width(8.dp))
+                Text("图片已选择", color = TextSecondary, fontSize = 12.sp)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onClearImage, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, "移除", tint = TextSecondary, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+
+        Row(
         modifier = modifier
             .fillMaxWidth()
             .background(InputSurface, inputShape)
@@ -129,5 +152,6 @@ fun InputBar(
                 )
             }
         }
+    }
     }
 }
