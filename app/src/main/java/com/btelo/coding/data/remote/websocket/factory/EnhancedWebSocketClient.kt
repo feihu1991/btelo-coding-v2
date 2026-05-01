@@ -210,7 +210,13 @@ class EnhancedWebSocketClient(
                 }
             }
             is BteloMessage.Command -> _messages.tryEmit(message)
-            is BteloMessage.Status -> _messages.tryEmit(message)
+            is BteloMessage.Status -> {
+                if (!message.connected) {
+                    _connectionState.value = ConnectionState.Disconnected
+                    scope.launch { _events.emit(WebSocketEvent.Disconnected(config?.sessionId ?: "", "server")) }
+                }
+                _messages.tryEmit(message)
+            }
             is BteloMessage.SyncHistory -> _messages.tryEmit(message)
             is BteloMessage.NewMessage -> _messages.tryEmit(message)
             is BteloMessage.SelectSession -> _messages.tryEmit(message)

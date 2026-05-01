@@ -223,8 +223,13 @@ app.get('/sessions', (req, res) => {
 // ============================================================
 app.get('/bridges', (req, res) => {
   const list = [];
+  const now = Date.now();
+  const STALE_AGE = 5 * 60 * 1000; // 5 minutes
   for (const [id, s] of sessions) {
-    // Only show bridges that have registered (bridgeWs may not be connected yet)
+    // Skip if both disconnected and session is older than 5 min
+    if (!s.bridgeWs && !s.mobileWs && (now - s.createdAt) > STALE_AGE) continue;
+    // Skip if bridge never connected or disconnected and no mobile
+    if (!s.bridgeWs && !s.mobileWs && (now - s.createdAt) > 30000) continue;
     list.push({
       id: id,
       device_name: s.bridgeInfo?.device_name || 'unknown',

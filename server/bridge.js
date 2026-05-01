@@ -31,8 +31,7 @@ const path = require('path');
 // Output parser (optional)
 let OutputParser = null;
 try {
-  const parserModule = require('./output-parser.js');
-  OutputParser = parserModule.OutputParser;
+  OutputParser = require('./output-parser.js');
 } catch (err) {
   console.warn('[BRIDGE] output-parser.js not available, using basic mode');
 }
@@ -420,6 +419,7 @@ function processConsoleQueue() {
 
     if (code === 0) {
       console.log(`[BRIDGE] Keystrokes sent to PID ${pid}`);
+      // Don't echo [Sent] - phone gets messages via JSONL watcher
     } else {
       console.error(`[BRIDGE] Console send failed (code ${code}): ${stderr.trim()}`);
       state.ws.send(JSON.stringify({
@@ -639,16 +639,21 @@ async function main() {
   };
 
   // Create output parser if enabled
-  if (state.structuredOutput && OutputParser) {
-    state.outputParser = new OutputParser({
-      debug: opts.verbose,
-      onMessage: (msg) => {
-        if (state.ws && state.ws.readyState === 1) {
-          state.ws.send(JSON.stringify(msg));
+  if (state.structuredOutput && OutputParser && typeof OutputParser === 'function') {
+    try {
+      state.outputParser = new OutputParser({
+        debug: opts.verbose,
+        onMessage: (msg) => {
+          if (state.ws && state.ws.readyState === 1) {
+            state.ws.send(JSON.stringify(msg));
         }
       }
-    });
-    console.log('[BRIDGE] Structured output enabled');
+      });
+      console.log('[BRIDGE] Structured output enabled');
+    } catch (e) {
+      console.warn('[BRIDGE] Failed to create output parser:', e.message);
+      state.structuredOutput = false;
+    }
   } else if (!OutputParser) {
     console.log('[BRIDGE] output-parser.js not found, using basic mode');
   }
