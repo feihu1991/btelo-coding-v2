@@ -145,9 +145,16 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun processStructuredOutput(structuredMsg: Message) {
+        // THINKING: immediately create collapsed bubble, don't stream
+        if (structuredMsg.outputType == DomainOutputType.THINKING) {
+            val thinkingMsg = structuredMsg.copy(outputType = DomainOutputType.THINKING)
+            viewModelScope.launch { messageRepository.saveMessage(thinkingMsg) }
+            return
+        }
+
         val currentBuffer = _uiState.value.structuredOutputBuffer
         val newPart = StructuredPart(
-            outputType = structuredMsg.outputType?.let { 
+            outputType = structuredMsg.outputType?.let {
                 when (it) {
                     DomainOutputType.CLAUDE_RESPONSE -> OutputType.CLAUDE_RESPONSE
                     DomainOutputType.TOOL_CALL -> OutputType.TOOL_CALL
@@ -161,10 +168,10 @@ class ChatViewModel @Inject constructor(
             content = structuredMsg.content,
             metadata = structuredMsg.metadata
         )
-        
-        val isComplete = newPart.outputType == OutputType.CLAUDE_RESPONSE && 
+
+        val isComplete = newPart.outputType == OutputType.CLAUDE_RESPONSE &&
                          !currentBuffer.messageId.isEmpty()
-        
+
         if (isComplete) {
             val finalMessage = buildStructuredMessage(currentBuffer.copy(
                 parts = currentBuffer.parts + newPart,
