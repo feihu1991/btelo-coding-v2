@@ -9,6 +9,9 @@
     powershell -ExecutionPolicy Bypass -File test-console-bridge.ps1
 #>
 
+# === 获取当前 PowerShell 进程 PID（用于排除自身） ===
+$myPid = $PID
+
 # === Win32 API 定义 ===
 $Win32Code = @'
 using System;
@@ -41,6 +44,9 @@ public class ConsoleBridge
     public const uint NUMLOCK_ON = 0x0020;
     public const uint SCROLLLOCK_ON = 0x0040;
     public const uint CAPSLOCK_ON = 0x0080;
+    
+    // MapVirtualKey 参数
+    private const uint MAPVK_VK_TO_VSC = 0x00;
     
     // P/Invoke 声明
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -89,6 +95,9 @@ public class ConsoleBridge
     
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool FlushConsoleInputBuffer(IntPtr hConsoleInput);
+    
+    [DllImport("user32.dll")]
+    public static extern uint MapVirtualKey(uint uCode, uint uMapType);
     
     // 结构体定义
     [StructLayout(LayoutKind.Sequential)]
@@ -165,10 +174,10 @@ public class ConsoleBridge
         }
     }
     
-    // 辅助方法
+    // 辅助方法 - 使用 MapVirtualKey 获取正确的虚拟扫描码
     public static ushort GetVirtualScanCode(ushort vk)
     {
-        return vk;
+        return (ushort)MapVirtualKey(vk, MAPVK_VK_TO_VSC);
     }
 }
 '@
@@ -281,14 +290,14 @@ function Read-ScreenContent {
     return $lines
 }
 
-# === 步骤 2: 查找 Claude Code 进程 ===
+# === 步骤 2: 查找 Claude Code 进程（排除自身） ===
 Write-Host ""
-Write-Host "[2/7] 查找 Claude Code 进程..." -ForegroundColor Yellow
+Write-Host "[2/7] 查找 Claude Code 进程 (排除自身 PID: $myPid)..." -ForegroundColor Yellow
 
 $claudeProcesses = @()
 
 # 方法1: 查找 claude.exe
-$processes = Get-Process -Name "claude" -ErrorAction SilentlyContinue
+$processes = Get-Process -Name "claude" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $myPid }
 if ($processes) {
     foreach ($p in $processes) {
         $claudeProcesses += $p
@@ -296,8 +305,8 @@ if ($processes) {
     }
 }
 
-# 方法2: 查找包含 "claude" 命令的 node.exe 进程
-$nodeProcesses = Get-Process -Name "node" -ErrorAction SilentlyContinue
+# 方法2: 查找包含 "claude" 命令的 node.exe 进程（排除自身）
+$nodeProcesses = Get-Process -Name "node" -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $myPid }
 if ($nodeProcesses) {
     foreach ($p in $nodeProcesses) {
         try {
@@ -310,8 +319,8 @@ if ($nodeProcesses) {
     }
 }
 
-# 方法3: 查找包含 "claude" 命令的 cmd.exe 或 powershell.exe
-$shellProcesses = Get-Process | Where-Object { $_.Name -eq "cmd" -or $_.Name -eq "powershell" -or $_.Name -eq "powershell7" }
+# 方法3: 查找包含 "claude" 命令的 cmd.exe 或 powershell.exe（排除自身）
+$shellProcesses = Get-Process | Where-Object { $_.Name -eq "cmd" -or $_.Name -eq "powershell" -or $_.Name -eq "powershell7" } | Where-Object { $_.Id -ne $myPid }
 foreach ($p in $shellProcesses) {
     try {
         $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
@@ -477,14 +486,14 @@ Write-Host "POC 测试结果总结" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Win32 Console API 验证:" -ForegroundColor White
-Write-Host "  1. GetStdHandle     - [OK] PASS" -ForegroundColor Green
-Write-Host "  2. AttachConsole    - " -NoNewline
+Write-Host "  1. GetStdHandle       - [OK] PASS" -ForegroundColor Green
+Write-Host "  2. AttachConsole      - " -NoNewline
 if ($attachResult) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }
-Write-Host "  3. WriteConsoleInput- " -NoNewline
+Write-Host "  3. WriteConsoleInput  - " -NoNewline
 if ($result1 -and $result2) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }
-Write-Host "  4. ReadConsoleOutput- " -NoNewline
+Write-Host "  4. ReadConsoleOutput  - " -NoNewline
 if ($afterScreen) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }
-Write-Host "  5. FreeConsole      - " -NoNewline
+Write-Host "  5. FreeConsole        - " -NoNewline
 if ($detachResult) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }
 Write-Host ""
 Write-Host "如果所有步骤都显示 [OK] PASS，说明方案可行！" -ForegroundColor Green

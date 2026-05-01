@@ -51,6 +51,9 @@ async function main() {
     log('info', '═══════════════════════════════════════════════════════');
     console.log();
     
+    // 声明 afterScreen 变量，避免作用域问题
+    let afterScreen = null;
+    
     // 检查平台
     if (process.platform !== 'win32') {
         log('warn', `当前平台: ${process.platform}`);
@@ -67,7 +70,7 @@ async function main() {
     
     try {
         // ===== 测试 1: 查找进程 =====
-        log('test', '[1/5] 测试 findProcesses() - 查找 Claude Code 进程');
+        log('test', '[1/6] 测试 findProcesses() - 查找 Claude Code 进程');
         console.log();
         
         const searchTerms = ['claude', 'node'];
@@ -116,7 +119,7 @@ async function main() {
         console.log();
         
         // ===== 测试 2: Attach =====
-        log('test', '[2/5] 测试 attach() - 附加到目标控制台');
+        log('test', '[2/6] 测试 attach() - 附加到目标控制台');
         console.log();
         
         try {
@@ -141,7 +144,7 @@ async function main() {
         console.log();
         
         // ===== 测试 3: ReadScreen (附加后立即读取) =====
-        log('test', '[3/5] 测试 readScreen() - 读取当前屏幕');
+        log('test', '[3/6] 测试 readScreen() - 读取当前屏幕');
         console.log();
         
         let initialScreen;
@@ -159,40 +162,36 @@ async function main() {
         }
         console.log();
         
-        // ===== 测试 4: WriteInput =====
-        log('test', '[4/5] 测试 writeInput() - 模拟键盘输入');
+        // ===== 测试 4: WriteLine (发送带 Enter 的命令) =====
+        log('test', '[4/6] 测试 writeLine() - 发送带 Enter 的命令');
         console.log();
         
-        const testCommands = ['hello', 'echo BTELO Console Bridge Test'];
+        const testCommand = 'hello';
+        log('info', `发送命令: "${testCommand}" + Enter`);
         
-        for (const cmd of testCommands) {
-            log('info', `发送命令: "${cmd}"`);
+        try {
+            // 使用 flush 清空输入缓冲区
+            bridge.flush();
             
-            try {
-                // 清空输入缓冲区
-                bridge.writeInput('');  // flush
-                
-                // 发送实际命令
-                const result = bridge.writeInput(cmd);
-                
-                if (result && result.success) {
-                    log('success', `成功写入 ${result.charsWritten} 个字符`);
-                }
-            } catch (err) {
-                log('error', `写入失败: ${err.message}`);
+            // 使用 writeLine 发送命令（会自动按 Enter）
+            const result = bridge.writeLine(testCommand);
+            
+            if (result && result.success) {
+                log('success', `成功写入 ${result.charsWritten} 个字符并发送 Enter`);
             }
-            
-            // 等待命令执行
-            console.log('       等待命令执行...');
-            await new Promise(resolve => setTimeout(resolve, 1500));
+        } catch (err) {
+            log('error', `写入失败: ${err.message}`);
         }
+        
+        // 等待命令执行
+        console.log('       等待命令执行...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
         console.log();
         
         // ===== 测试 5: ReadScreen (写入后读取) =====
-        log('test', '[5/5] 测试 readScreen() - 读取输入后屏幕');
+        log('test', '[5/6] 测试 readScreen() - 读取输入后屏幕');
         console.log();
         
-        let afterScreen;
         try {
             afterScreen = bridge.readScreen();
             if (afterScreen && afterScreen.length > 0) {
@@ -208,7 +207,7 @@ async function main() {
         console.log();
         
         // ===== 测试 6: Detach =====
-        log('test', '[6/5] 测试 detach() - 分离控制台');
+        log('test', '[6/6] 测试 detach() - 分离控制台');
         console.log();
         
         try {
