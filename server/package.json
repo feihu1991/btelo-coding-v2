@@ -1,12 +1,14 @@
 {
   "name": "btelo-coding-server",
   "version": "2.0.0",
-  "description": "BTELO Coding relay server + bridge CLI with PTY and structured output support",
+  "description": "BTELO Coding relay server + Windows attach bridge for Claude Code terminal sync",
   "main": "relay.js",
   "scripts": {
     "start": "node relay.js",
     "relay": "node relay.js",
-    "bridge": "node bridge.js",
+    "bridge": "node bridge-attach.js",
+    "bridge:attach": "node bridge-attach.js",
+    "bridge:legacy": "node bridge.js",
     "pty": "node pty-bridge.js",
     "legacy": "node index.js",
     "restart": "node ./restart.js"
@@ -34,7 +36,8 @@
     "mobile",
     "remote",
     "coding",
-    "pty",
+    "windows",
+    "terminal-sync",
     "websocket"
   ],
   "author": "BTELO",
