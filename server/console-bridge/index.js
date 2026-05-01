@@ -63,7 +63,7 @@ class ConsoleBridge {
     /**
      * 查找进程
      * @param {string} name - 进程名称 (如 "claude", "node")
-     * @returns {Promise<Array<{pid: number, name: string, parentPid: number}>>}
+     * @returns {Array<{pid: number, name: string, parentPid: number}>}
      */
     findProcesses(name) {
         const bridge = loadNativeModule();
@@ -73,7 +73,7 @@ class ConsoleBridge {
     /**
      * 附加到目标进程的控制台
      * @param {number} pid - 目标进程 ID
-     * @returns {Promise<{success: boolean, pid: number, inputHandle: number, outputHandle: number}>}
+     * @returns {{success: boolean, pid: number, inputHandle: number, outputHandle: number}}
      */
     attach(pid) {
         if (this._isAttached) {
@@ -93,9 +93,9 @@ class ConsoleBridge {
     }
     
     /**
-     * 写入文本输入
+     * 写入文本输入（不自动按 Enter）
      * @param {string} text - 要输入的文本
-     * @returns {Promise<{success: boolean, charsWritten: number}>}
+     * @returns {{success: boolean, charsWritten: number}}
      */
     writeInput(text) {
         const bridge = loadNativeModule();
@@ -103,8 +103,27 @@ class ConsoleBridge {
     }
     
     /**
+     * P0 #2: 写入文本输入并按 Enter
+     * @param {string} text - 要输入的文本
+     * @returns {{success: boolean, charsWritten: number}}
+     */
+    writeLine(text) {
+        const bridge = loadNativeModule();
+        return bridge.writeLine(text);
+    }
+    
+    /**
+     * P0 #2: 清空输入缓冲区
+     * @returns {boolean}
+     */
+    flush() {
+        const bridge = loadNativeModule();
+        return bridge.flush();
+    }
+    
+    /**
      * 读取屏幕内容
-     * @returns {Promise<string[]>} - 屏幕行数组
+     * @returns {string[]} - 屏幕行数组
      */
     readScreen() {
         const bridge = loadNativeModule();
@@ -113,7 +132,7 @@ class ConsoleBridge {
     
     /**
      * 分离控制台
-     * @returns {Promise<boolean>}
+     * @returns {boolean}
      */
     detach() {
         if (!this._isAttached) {
@@ -170,8 +189,14 @@ Usage:
   // Attach to a process
   bridge.attach(pid);
   
-  // Write input
+  // Write input (without Enter)
   bridge.writeInput('hello');
+  
+  // Write line (with Enter)
+  bridge.writeLine('hello');
+  
+  // Flush input buffer
+  bridge.flush();
   
   // Read screen
   const screen = bridge.readScreen();

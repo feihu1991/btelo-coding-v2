@@ -23,8 +23,11 @@
 // 常量定义
 // ============================================================================
 
-const uint32_t STD_INPUT_HANDLE = (DWORD)-10;
-const uint32_t STD_OUTPUT_HANDLE = (DWORD)-11;
+// P0 #1: 删除与 Windows SDK 冲突的宏定义，直接使用数字字面量
+// 旧代码: const uint32_t STD_INPUT_HANDLE = (DWORD)-10;
+// 旧代码: const uint32_t STD_OUTPUT_HANDLE = (DWORD)-11;
+// GetStdHandle(STD_INPUT_HANDLE) 等价于 GetStdHandle((DWORD)-10)
+// GetStdHandle(STD_OUTPUT_HANDLE) 等价于 GetStdHandle((DWORD)-11)
 
 const uint16_t KEY_EVENT = 0x0001;
 
@@ -59,8 +62,25 @@ static bool g_isAttached = false;
     }
 
 // ============================================================================
-// 实现: findProcesses(name)
-// 查找包含指定名称的进程
+// 辅助函数: 获取虚拟扫描码 (P1 #4)
+// ============================================================================
+
+// MapVirtualKeyW 函数声明
+#pragma comment(lib, "user32.lib")
+static UINT GetVirtualScanCode(WORD vk) {
+    return MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
+}
+
+// ============================================================================
+// 辅助函数: 判断字符是否为 ASCII 字母 (P1 #5)
+// ============================================================================
+
+static bool IsAsciiAlpha(wchar_t ch) {
+    return (ch >= L'a' && ch <= L'z') || (ch >= L'A' && ch <= L'Z');
+}
+
+// ============================================================================
+// 实现: findProcesses(name) (P2 #10, #11)
 // ============================================================================
 
 napi_value FindProcesses(napi_env env, napi_callback_info info) {
@@ -73,10 +93,19 @@ napi_value FindProcesses(napi_env env, napi_callback_info info) {
         return NULL;
     }
     
-    // 获取进程名称
-    char processName[256];
-    size_t processNameLen;
-    napi_get_value_string_utf8(env, argv[0], processName, sizeof(processName), &processNameLen);
+    // P2 #10: 先获取字符串长度
+    size_t processNameLen = 0;
+    napi_get_value_string_utf8(env, argv[0], NULL, 0, &processNameLen);
+    
+    if (processNameLen == 0) {
+        napi_value result;
+        napi_create_array(env, &result);
+        return result;
+    }
+    
+    // 动态分配缓冲区
+    char* processName = new char[processNameLen + 1];
+    napi_get_value_string_utf8(env, argv[0], processName, processNameLen + 1, &processNameLen);
     
     // 创建结果数组
     napi_value result;
@@ -86,25 +115,56 @@ napi_value FindProcesses(napi_env env, napi_callback_info info) {
     // 使用快照方式枚举进程 (Process32First/Next)
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hSnapshot == INVALID_HANDLE_VALUE) {
+        delete[] processName;
         return result;  // 返回空数组
     }
     
     PROCESSENTRY32W pe;
     pe.dwSize = sizeof(PROCESSENTRY32W);
     
+    // P2 #11: 先将搜索词转换为小写
+    std::wstring searchLower(processName, processNameLen);
+    for (auto& c : searchLower) {
+        if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';
+    }
+    
     if (Process32FirstW(hSnapshot, &pe)) {
         do {
-            // 将进程名转换为小写比较
+            // 将进程名转换为小写
             wchar_t exeName[260];
             wcscpy_s(exeName, pe.szExeFile);
-            _wcslwr_s(exeName);
+            std::wstring exeLower(exeName);
+            for (auto& c : exeLower) {
+                if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';
+            }
             
-            // 检查进程名是否匹配
-            wchar_t searchName[260];
-            mbstowcs_s(NULL, searchName, processName, sizeof(searchName) / sizeof(wchar_t));
-            _wcslwr_s(searchName);
+            bool matched = false;
             
-            if (wcsstr(exeName, searchName) != NULL) {
+            // P2 #11: 先精确匹配 (不含扩展名的情况)
+            size_t exeLen = wcslen(pe.szExeFile);
+            if (exeLen >= processNameLen) {
+                std::wstring exePart(exeName);
+                for (size_t i = 0; i < exeLen; i++) {
+                    if (exePart[i] >= L'A' && exePart[i] <= L'Z') {
+                        exePart[i] = exePart[i] - L'A' + L'a';
+                    }
+                }
+                
+                // 检查开头是否匹配
+                if (exeLen > processNameLen && 
+                    (exePart[processNameLen] == L'.' || exePart[processNameLen] == L' ' || exePart[processNameLen] == L'\0')) {
+                    if (exePart.substr(0, processNameLen) == searchLower) {
+                        matched = true;
+                    }
+                }
+            }
+            
+            // 如果精确匹配失败，使用模糊匹配 (wcsstr)
+            if (!matched && wcsstr(exeLower.c_str(), searchLower.c_str()) != NULL) {
+                matched = true;
+            }
+            
+            if (matched) {
                 // 创建进程信息对象
                 napi_value procInfo;
                 napi_create_object(env, &procInfo);
@@ -130,12 +190,13 @@ napi_value FindProcesses(napi_env env, napi_callback_info info) {
     }
     
     CloseHandle(hSnapshot);
+    delete[] processName;
+    
     return result;
 }
 
 // ============================================================================
 // 实现: attach(pid)
-// 附加到目标进程的控制台
 // ============================================================================
 
 napi_value Attach(napi_env env, napi_callback_info info) {
@@ -170,9 +231,9 @@ napi_value Attach(napi_env env, napi_callback_info info) {
         return NULL;
     }
     
-    // 获取控制台句柄
-    g_hInput = GetStdHandle(STD_INPUT_HANDLE);
-    g_hOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    // P0 #1: 使用数字字面量替代被 Windows SDK 宏定义的常量
+    g_hInput = GetStdHandle((DWORD)-10);  // STD_INPUT_HANDLE
+    g_hOutput = GetStdHandle((DWORD)-11); // STD_OUTPUT_HANDLE
     
     if (g_hInput == INVALID_HANDLE_VALUE || g_hOutput == INVALID_HANDLE_VALUE) {
         FreeConsole();
@@ -207,7 +268,7 @@ napi_value Attach(napi_env env, napi_callback_info info) {
 }
 
 // ============================================================================
-// 辅助函数: 发送字符输入事件
+// 辅助函数: 发送字符输入事件 (P1 #4, #5)
 // ============================================================================
 
 static bool SendCharEvent(HANDLE hInput, wchar_t ch, bool keyDown) {
@@ -215,8 +276,18 @@ static bool SendCharEvent(HANDLE hInput, wchar_t ch, bool keyDown) {
     ir.EventType = KEY_EVENT;
     ir.KeyEvent.bKeyDown = keyDown;
     ir.KeyEvent.wRepeatCount = 1;
-    ir.KeyEvent.wVirtualKeyCode = (WORD)ch;
-    ir.KeyEvent.wVirtualScanCode = 0;
+    
+    // P1 #5: 字母字符的 VK code 统一转为大写
+    if (IsAsciiAlpha(ch)) {
+        ir.KeyEvent.wVirtualKeyCode = (WORD)towupper(ch);
+    } else {
+        ir.KeyEvent.wVirtualKeyCode = (WORD)ch;
+    }
+    
+    // P1 #4: 使用 MapVirtualKey 计算 scan code
+    ir.KeyEvent.wVirtualScanCode = (WORD)GetVirtualScanCode(ir.KeyEvent.wVirtualKeyCode);
+    
+    // UnicodeChar 保留原始大小写
     ir.KeyEvent.UnicodeChar = ch;
     ir.KeyEvent.dwControlKeyState = 0;
     
@@ -225,7 +296,7 @@ static bool SendCharEvent(HANDLE hInput, wchar_t ch, bool keyDown) {
 }
 
 // ============================================================================
-// 辅助函数: 发送 Enter 键
+// 辅助函数: 发送 Enter 键 (P0 #3)
 // ============================================================================
 
 static bool SendEnterKey(HANDLE hInput) {
@@ -235,12 +306,13 @@ static bool SendEnterKey(HANDLE hInput) {
     irDown.KeyEvent.bKeyDown = TRUE;
     irDown.KeyEvent.wRepeatCount = 1;
     irDown.KeyEvent.wVirtualKeyCode = VK_RETURN;
-    irDown.KeyEvent.wVirtualScanCode = 0;
+    irDown.KeyEvent.wVirtualScanCode = (WORD)GetVirtualScanCode(VK_RETURN);
     irDown.KeyEvent.UnicodeChar = L'\r';
     irDown.KeyEvent.dwControlKeyState = 0;
     
     DWORD written = 0;
-    if (!WriteConsoleInputW(g_hInput, &irDown, 1, &written) || written != 1) {
+    // P0 #3: 使用参数 hInput 而不是全局 g_hInput
+    if (!WriteConsoleInputW(hInput, &irDown, 1, &written) || written != 1) {
         return false;
     }
     
@@ -250,16 +322,16 @@ static bool SendEnterKey(HANDLE hInput) {
     irUp.KeyEvent.bKeyDown = FALSE;
     irUp.KeyEvent.wRepeatCount = 1;
     irUp.KeyEvent.wVirtualKeyCode = VK_RETURN;
-    irUp.KeyEvent.wVirtualScanCode = 0;
+    irUp.KeyEvent.wVirtualScanCode = (WORD)GetVirtualScanCode(VK_RETURN);
     irUp.KeyEvent.UnicodeChar = L'\r';
     irUp.KeyEvent.dwControlKeyState = 0;
     
-    return WriteConsoleInputW(g_hInput, &irUp, 1, &written) && written == 1;
+    // P0 #3: 使用参数 hInput 而不是全局 g_hInput
+    return WriteConsoleInputW(hInput, &irUp, 1, &written) && written == 1;
 }
 
 // ============================================================================
-// 实现: writeInput(text)
-// 写入文本输入（不自动按 Enter）
+// 实现: writeInput(text) (P1 #6, #7, P2 #9)
 // ============================================================================
 
 napi_value WriteInput(napi_env env, napi_callback_info info) {
@@ -274,15 +346,30 @@ napi_value WriteInput(napi_env env, napi_callback_info info) {
         return NULL;
     }
     
-    // 获取文本
-    char16_t text16[4096];
-    size_t textLen;
-    napi_get_value_string_utf16(env, argv[0], text16, sizeof(text16) / sizeof(char16_t), &textLen);
+    // P2 #9: 先获取字符串长度
+    size_t textLen = 0;
+    napi_get_value_string_utf16(env, argv[0], NULL, 0, &textLen);
+    
+    if (textLen == 0) {
+        napi_value result;
+        napi_create_object(env, &result);
+        napi_value charsWritten;
+        napi_create_int32(env, 0, &charsWritten);
+        napi_set_named_property(env, result, "charsWritten", charsWritten);
+        napi_value success;
+        napi_get_boolean(env, true, &success);
+        napi_set_named_property(env, result, "success", success);
+        return result;
+    }
+    
+    // 动态分配缓冲区
+    char16_t* text16 = new char16_t[textLen + 1];
+    napi_get_value_string_utf16(env, argv[0], text16, textLen + 1, &textLen);
     
     std::wstring text(text16, textLen);
+    delete[] text16;
     
-    // 清空输入缓冲区
-    FlushConsoleInputBuffer(g_hInput);
+    // P1 #6: 移除写入前的 FlushConsoleInputBuffer 调用，避免吞掉用户按键
     
     DWORD written = 0;
     int totalWritten = 0;
@@ -299,7 +386,8 @@ napi_value WriteInput(napi_env env, napi_callback_info info) {
             totalWritten++;
         }
         
-        Sleep(5);  // 短暂延迟
+        // P1 #7: Sleep(5) 改为 Sleep(1)
+        Sleep(1);
     }
     
     // 返回结果
@@ -318,8 +406,7 @@ napi_value WriteInput(napi_env env, napi_callback_info info) {
 }
 
 // ============================================================================
-// 实现: writeLine(text)
-// 写入文本输入并按 Enter
+// 实现: writeLine(text) (P1 #6, #7)
 // ============================================================================
 
 napi_value WriteLine(napi_env env, napi_callback_info info) {
@@ -334,21 +421,39 @@ napi_value WriteLine(napi_env env, napi_callback_info info) {
         return NULL;
     }
     
-    // 获取文本
-    char16_t text16[4096];
-    size_t textLen;
-    napi_get_value_string_utf16(env, argv[0], text16, sizeof(text16) / sizeof(char16_t), &textLen);
+    // P2 #9: 先获取字符串长度
+    size_t textLen = 0;
+    napi_get_value_string_utf16(env, argv[0], NULL, 0, &textLen);
+    
+    if (textLen == 0) {
+        // 发送 Enter 键
+        bool enterSuccess = SendEnterKey(g_hInput);
+        napi_value result;
+        napi_create_object(env, &result);
+        napi_value charsWritten;
+        napi_create_int32(env, 0, &charsWritten);
+        napi_set_named_property(env, result, "charsWritten", charsWritten);
+        napi_value success;
+        napi_get_boolean(env, enterSuccess, &success);
+        napi_set_named_property(env, result, "success", success);
+        return result;
+    }
+    
+    // 动态分配缓冲区
+    char16_t* text16 = new char16_t[textLen + 1];
+    napi_get_value_string_utf16(env, argv[0], text16, textLen + 1, &textLen);
     
     std::wstring text(text16, textLen);
+    delete[] text16;
     
-    // 清空输入缓冲区
-    FlushConsoleInputBuffer(g_hInput);
+    // P1 #6: 移除写入前的 FlushConsoleInputBuffer 调用
     
     // 发送每个字符
     for (wchar_t ch : text) {
         SendCharEvent(g_hInput, ch, true);
         SendCharEvent(g_hInput, ch, false);
-        Sleep(5);
+        // P1 #7: Sleep(5) 改为 Sleep(1)
+        Sleep(1);
     }
     
     // 发送 Enter 键
@@ -371,7 +476,6 @@ napi_value WriteLine(napi_env env, napi_callback_info info) {
 
 // ============================================================================
 // 实现: flush()
-// 清空输入缓冲区
 // ============================================================================
 
 napi_value Flush(napi_env env, napi_callback_info info) {
@@ -385,8 +489,7 @@ napi_value Flush(napi_env env, napi_callback_info info) {
 }
 
 // ============================================================================
-// 实现: readScreen()
-// 读取屏幕内容
+// 实现: readScreen() (P2 #8)
 // ============================================================================
 
 napi_value ReadScreen(napi_env env, napi_callback_info info) {
@@ -438,20 +541,13 @@ napi_value ReadScreen(napi_env env, napi_callback_info info) {
             line.pop_back();
         }
         
-        // 只保留有内容的行
-        bool hasContent = false;
-        for (wchar_t c : line) {
-            if (!iswspace(c)) {
-                hasContent = true;
-                break;
-            }
-        }
+        // P2 #8: 保留所有行，不跳过空行
+        // 旧代码: 检查 hasContent 并跳过空行
+        // 新代码: 直接添加所有行
         
-        if (hasContent) {
-            napi_value lineValue;
-            napi_create_string_utf16(env, (const char16_t*)line.c_str(), line.length(), &lineValue);
-            napi_set_element(env, result, lineIndex++, lineValue);
-        }
+        napi_value lineValue;
+        napi_create_string_utf16(env, (const char16_t*)line.c_str(), line.length(), &lineValue);
+        napi_set_element(env, result, lineIndex++, lineValue);
     }
     
     delete[] buffer;
@@ -461,7 +557,6 @@ napi_value ReadScreen(napi_env env, napi_callback_info info) {
 
 // ============================================================================
 // 实现: detach()
-// 分离控制台
 // ============================================================================
 
 napi_value Detach(napi_env env, napi_callback_info info) {
@@ -502,14 +597,8 @@ napi_value Init(napi_env env, napi_value exports) {
     status = napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     NAPI_THROW_IF_FAILED(env, status, "Failed to define properties");
     
-    // 导出常量
-    napi_value inputHandleValue;
-    napi_create_int64(env, STD_INPUT_HANDLE, &inputHandleValue);
-    napi_set_named_property(env, exports, "STD_INPUT_HANDLE", inputHandleValue);
-    
-    napi_value outputHandleValue;
-    napi_create_int64(env, STD_OUTPUT_HANDLE, &outputHandleValue);
-    napi_set_named_property(env, exports, "STD_OUTPUT_HANDLE", outputHandleValue);
+    // P0 #1: 删除导出的常量定义（避免与 Windows SDK 宏冲突）
+    // 旧代码会导出 STD_INPUT_HANDLE 和 STD_OUTPUT_HANDLE，在某些情况下会导致问题
     
     return exports;
 }

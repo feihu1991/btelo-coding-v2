@@ -290,6 +290,28 @@ function Read-ScreenContent {
     return $lines
 }
 
+# P2 #13: 改进的进程匹配函数
+function Test-ProcessMatchesClaude {
+    param(
+        [int]$ProcessId,
+        [string]$ProcessName
+    )
+    
+    try {
+        $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue).CommandLine
+        if (-not $cmdLine) { return $false }
+        
+        # P2 #13: 改进正则匹配 - 使用更精确的模式
+        # 匹配 claude 独立命令或 npm/npx 包名
+        $pattern = '(?i)[\/\\]claude[\.exe"]?\s|--claude|@anthropic[/-]ai[/-]claude|claude-code'
+        if ($cmdLine -match $pattern) {
+            return $true
+        }
+    } catch { }
+    
+    return $false
+}
+
 # === 步骤 2: 查找 Claude Code 进程（排除自身） ===
 Write-Host ""
 Write-Host "[2/7] 查找 Claude Code 进程 (排除自身 PID: $myPid)..." -ForegroundColor Yellow
@@ -311,7 +333,8 @@ if ($nodeProcesses) {
     foreach ($p in $nodeProcesses) {
         try {
             $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
-            if ($cmdLine -and $cmdLine -match "claude") {
+            # P2 #13: 使用改进的匹配函数
+            if ($cmdLine -and (Test-ProcessMatchesClaude -ProcessId $p.Id -ProcessName "node")) {
                 $claudeProcesses += $p
                 Write-Host "    [OK] 找到 node.exe 运行 claude (PID: $($p.Id))" -ForegroundColor Green
             }
@@ -319,12 +342,13 @@ if ($nodeProcesses) {
     }
 }
 
-# 方法3: 查找包含 "claude" 命令的 cmd.exe 或 powershell.exe（排除自身）
+# P2 #13: 改进方法3: 查找包含 "claude" 命令的 cmd.exe 或 powershell.exe（排除自身）
 $shellProcesses = Get-Process | Where-Object { $_.Name -eq "cmd" -or $_.Name -eq "powershell" -or $_.Name -eq "powershell7" } | Where-Object { $_.Id -ne $myPid }
 foreach ($p in $shellProcesses) {
     try {
         $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
-        if ($cmdLine -and $cmdLine -match "claude") {
+        # P2 #13: 使用改进的匹配函数，避免误匹配
+        if ($cmdLine -and (Test-ProcessMatchesClaude -ProcessId $p.Id -ProcessName $p.Name)) {
             $alreadyAdded = $false
             foreach ($cp in $claudeProcesses) {
                 if ($cp.Id -eq $p.Id) {
@@ -425,29 +449,32 @@ $testText = "hello"
 
 Write-Host "    发送: $testText" -ForegroundColor Cyan
 
+$writeSuccess = $true
 foreach ($char in $testText.ToCharArray()) {
     $vk = [System.Convert]::ToUInt16([char]::ToUpper($char))
     $result1 = Write-ConsoleKeyEvent -Handle $hInput -KeyDown $true -Char $char -VirtualKeyCode $vk
-    Start-Sleep -Milliseconds 5
+    Start-Sleep -Milliseconds 1
     $result2 = Write-ConsoleKeyEvent -Handle $hInput -KeyDown $false -Char $char -VirtualKeyCode $vk
-    Start-Sleep -Milliseconds 5
+    Start-Sleep -Milliseconds 1
     
     if ($result1 -and $result2) {
         Write-Host "    [OK] 字符 '$char' 发送成功" -ForegroundColor Green
     } else {
         Write-Host "    [FAIL] 字符 '$char' 发送失败" -ForegroundColor Red
+        $writeSuccess = $false
     }
 }
 
 Write-Host "    发送: Enter (VK_RETURN)" -ForegroundColor Cyan
 $result1 = Write-ConsoleKeyEvent -Handle $hInput -KeyDown $true -Char ([char]13) -VirtualKeyCode ([ConsoleBridge]::VK_RETURN)
-Start-Sleep -Milliseconds 5
+Start-Sleep -Milliseconds 1
 $result2 = Write-ConsoleKeyEvent -Handle $hInput -KeyDown $false -Char ([char]13) -VirtualKeyCode ([ConsoleBridge]::VK_RETURN)
 
 if ($result1 -and $result2) {
     Write-Host "    [OK] Enter 发送成功" -ForegroundColor Green
 } else {
     Write-Host "    [FAIL] Enter 发送失败" -ForegroundColor Red
+    $writeSuccess = $false
 }
 
 Write-Host "    等待命令执行..." -ForegroundColor Gray
@@ -490,8 +517,9 @@ Write-Host "  1. GetStdHandle       - [OK] PASS" -ForegroundColor Green
 Write-Host "  2. AttachConsole      - " -NoNewline
 if ($attachResult) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }
 Write-Host "  3. WriteConsoleInput  - " -NoNewline
-if ($result1 -and $result2) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }
-Write-Host "  4. ReadConsoleOutput  - " -NoNewline
+# P2 #14: 追踪 writeLine 实际结果
+if ($writeSuccess) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }
+Write-Host "  4. ReadConsoleOutput - " -NoNewline
 if ($afterScreen) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }
 Write-Host "  5. FreeConsole        - " -NoNewline
 if ($detachResult) { Write-Host "[OK] PASS" -ForegroundColor Green } else { Write-Host "[FAIL] FAIL" -ForegroundColor Red }

@@ -51,8 +51,9 @@ async function main() {
     log('info', '═══════════════════════════════════════════════════════');
     console.log();
     
-    // 声明 afterScreen 变量，避免作用域问题
+    // 声明 afterScreen 和 writeLineSuccess 变量
     let afterScreen = null;
+    let writeLineSuccess = false;
     
     // 检查平台
     if (process.platform !== 'win32') {
@@ -176,11 +177,17 @@ async function main() {
             // 使用 writeLine 发送命令（会自动按 Enter）
             const result = bridge.writeLine(testCommand);
             
+            // P2 #14: 追踪 writeLine 实际结果
             if (result && result.success) {
                 log('success', `成功写入 ${result.charsWritten} 个字符并发送 Enter`);
+                writeLineSuccess = true;
+            } else {
+                log('error', `写入失败: ${result ? 'success=false' : 'result is null/undefined'}`);
+                writeLineSuccess = false;
             }
         } catch (err) {
             log('error', `写入失败: ${err.message}`);
+            writeLineSuccess = false;
         }
         
         // 等待命令执行
@@ -243,12 +250,13 @@ async function main() {
     console.log();
     console.log(`    GetStdHandle         [${colors.green}PASS${colors.reset}]`);
     console.log(`    AttachConsole        [${attached ? colors.green : colors.red}${attached ? 'PASS' : 'FAIL'}${colors.reset}]`);
-    console.log(`    WriteConsoleInput    [${colors.green}PASS${colors.reset}]`);
+    // P2 #14: 使用追踪的 writeLineSuccess 而非固定 PASS
+    console.log(`    WriteConsoleInput    [${writeLineSuccess ? colors.green : colors.red}${writeLineSuccess ? 'PASS' : 'FAIL'}${colors.reset}]`);
     console.log(`    ReadConsoleOutput    [${afterScreen ? colors.green : colors.red}${afterScreen ? 'PASS' : 'FAIL'}${colors.reset}]`);
     console.log(`    FreeConsole          [${colors.green}PASS${colors.reset}]`);
     console.log();
     
-    if (attached && afterScreen) {
+    if (attached && writeLineSuccess && afterScreen) {
         log('success', '所有 Win32 Console API 调用成功!');
         log('success', 'POC 验证通过 - 方案可行!');
         log('info', '');
