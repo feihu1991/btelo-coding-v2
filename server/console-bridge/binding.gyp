@@ -6,8 +6,8 @@
       "conditions": [
         ["OS=='win'", {
           "libraries": [
-            "-lkernel32.lib",
-            "-luser32.lib"
+            "kernel32.lib",
+            "user32.lib"
           ],
           "defines": [
             "WIN32_LEAN_AND_MEAN",

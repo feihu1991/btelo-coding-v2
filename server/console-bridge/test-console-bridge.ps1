@@ -334,8 +334,9 @@ if ($nodeProcesses) {
     foreach ($p in $nodeProcesses) {
         try {
             $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
-            # P2 #13: 使用改进的匹配函数
-            if ($cmdLine -and (Test-ProcessMatchesClaude -ProcessId $p.Id -ProcessName "node")) {
+            # P2 #13: 直接用已获取的 cmdLine 匹配，避免重复 WMI 查询
+            $pattern = '(?i)(?:^|[\/\\ ])claude(\.exe)?(\s|$)|@anthropic[/-]ai[/-]claude|claude-code'
+            if ($cmdLine -and ($cmdLine -match $pattern)) {
                 $claudeProcesses += $p
                 Write-Host "    [OK] 找到 node.exe 运行 claude (PID: $($p.Id))" -ForegroundColor Green
             }
@@ -348,8 +349,9 @@ $shellProcesses = Get-Process | Where-Object { $_.Name -eq "cmd" -or $_.Name -eq
 foreach ($p in $shellProcesses) {
     try {
         $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($p.Id)" -ErrorAction SilentlyContinue).CommandLine
-        # P2 #13: 使用改进的匹配函数，避免误匹配
-        if ($cmdLine -and (Test-ProcessMatchesClaude -ProcessId $p.Id -ProcessName $p.Name)) {
+        # P2 #13: 直接用已获取的 cmdLine 匹配，避免重复 WMI 查询
+        $claudePattern = '(?i)(?:^|[\/\\ ])claude(\.exe)?(\s|$)|@anthropic[/-]ai[/-]claude|claude-code'
+        if ($cmdLine -and ($cmdLine -match $claudePattern)) {
             $alreadyAdded = $false
             foreach ($cp in $claudeProcesses) {
                 if ($cp.Id -eq $p.Id) {

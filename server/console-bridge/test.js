@@ -105,7 +105,6 @@ async function main() {
         }
         
         // 去重
-        const uniquePids = new Set(foundProcesses.map(p => p.pid));
         const uniqueProcesses = foundProcesses.filter((p, i, arr) => 
             arr.findIndex(p2 => p2.pid === p.pid) === i
         );

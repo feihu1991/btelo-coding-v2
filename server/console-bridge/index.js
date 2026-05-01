@@ -7,8 +7,6 @@
 
 'use strict';
 
-const path = require('path');
-
 // 平台检测
 const isWindows = process.platform === 'win32';
 

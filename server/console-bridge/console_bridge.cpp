@@ -25,12 +25,10 @@
 // GetStdHandle(STD_INPUT_HANDLE) 等价于 GetStdHandle((DWORD)-10)
 // GetStdHandle(STD_OUTPUT_HANDLE) 等价于 GetStdHandle((DWORD)-11)
 
-const uint16_t KEY_EVENT = 0x0001;
-
-const uint16_t VK_RETURN = 0x0D;
-const uint16_t VK_ESCAPE = 0x1B;
-const uint16_t VK_BACK = 0x08;
-const uint16_t VK_TAB = 0x09;
+// Windows SDK 已通过 #define 定义了以下宏，不可重新声明为 const:
+// KEY_EVENT = 0x0001  (wincon.h)
+// VK_RETURN = 0x0D, VK_ESCAPE = 0x1B, VK_BACK = 0x08, VK_TAB = 0x09  (winuser.h)
+// 直接使用宏名即可
 
 // ============================================================================
 // 全局状态
@@ -118,8 +116,15 @@ napi_value FindProcesses(napi_env env, napi_callback_info info) {
     PROCESSENTRY32W pe;
     pe.dwSize = sizeof(PROCESSENTRY32W);
     
-    // P2 #11: 先将搜索词转换为小写
-    std::wstring searchLower(processName, processNameLen);
+    // P0 #3: 将 char* (UTF-8) 转换为 wchar_t* 再构造 wstring
+    size_t wcharCount = 0;
+    mbstowcs_s(&wcharCount, nullptr, 0, processName, processNameLen);
+    std::wstring searchLower;
+    if (wcharCount > 0) {
+        searchLower.resize(wcharCount);
+        mbstowcs_s(nullptr, &searchLower[0], wcharCount, processName, processNameLen);
+        searchLower.resize(wcharCount - 1);  // mbstowcs_s 包含 null terminator
+    }
     for (auto& c : searchLower) {
         if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';
     }
@@ -367,7 +372,6 @@ napi_value WriteInput(napi_env env, napi_callback_info info) {
     
     // P1 #6: 移除写入前的 FlushConsoleInputBuffer 调用，避免吞掉用户按键
     
-    DWORD written = 0;
     int totalWritten = 0;
     
     // 发送每个字符
