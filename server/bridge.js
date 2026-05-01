@@ -375,7 +375,62 @@ function formatClaudeEvent(event) {
 }
 
 // ============================================================
-// Execute Claude Code command via --resume
+// Send keystrokes directly to Claude Code console via PowerShell
+// ============================================================
+function sendConsoleInput(pid, text, state) {
+  const scriptPath = path.join(__dirname, 'console-bridge', 'console-sender.ps1');
+
+  // Escape text for PowerShell: double-quote and escape embedded double quotes
+  const escapedText = text.replace(/"/g, '""');
+  const psArgs = [
+    '-ExecutionPolicy', 'Bypass',
+    '-File', scriptPath,
+    '-Pid', String(pid),
+    '-Text', escapedText
+  ];
+
+  console.log(`[BRIDGE] Sending keystrokes to PID ${pid}...`);
+
+  const child = spawn('powershell', psArgs, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true
+  });
+
+  let stderr = '';
+  child.stderr.on('data', (data) => {
+    stderr += data.toString();
+  });
+
+  child.on('close', (code) => {
+    if (code === 0) {
+      console.log(`[BRIDGE] Keystrokes sent to PID ${pid}`);
+      state.ws.send(JSON.stringify({
+        type: 'output',
+        data: `[Sent] ${text}\n`,
+        stream: 'STDOUT'
+      }));
+    } else {
+      console.error(`[BRIDGE] Console send failed (code ${code}): ${stderr.trim()}`);
+      state.ws.send(JSON.stringify({
+        type: 'output',
+        data: `Error: Failed to send input (code ${code}). Run as Administrator?\n${stderr.trim()}\n`,
+        stream: 'STDERR'
+      }));
+    }
+  });
+
+  child.on('error', (err) => {
+    console.error(`[BRIDGE] Failed to start PowerShell: ${err.message}`);
+    state.ws.send(JSON.stringify({
+      type: 'output',
+      data: `Error: PowerShell not available: ${err.message}\n`,
+      stream: 'STDERR'
+    }));
+  });
+}
+
+// ============================================================
+// Execute Claude Code command via --resume (fallback for non-Windows)
 // ============================================================
 function executeResumeCommand(state, command, onOutput, outputParser) {
   if (!state.claudeSessionId) {
@@ -671,8 +726,9 @@ async function main() {
       state.claudeSessionId = bestMatch.sessionId;
       state.jsonlPath = bestMatch.jsonlPath;
       state.workDir = bestMatch.cwd;
+      state.claudePid = bestMatch.pid;
       const status = bestMatch.isAlive ? 'active' : 'closed';
-      console.log(`  Auto-selected session: ${bestMatch.sessionId.substring(0, 12)}... (${status}, ${bestMatch.messageCount} msgs)`);
+      console.log(`  Auto-selected session: ${bestMatch.sessionId.substring(0, 12)}... (${status}, ${bestMatch.messageCount} msgs, PID: ${bestMatch.pid})`);
       console.log('');
     }
   } else {
@@ -742,28 +798,25 @@ async function main() {
 
         console.log(`[BRIDGE] Received command: ${msg.content.substring(0, 80)}...`);
 
-        state.ws.send(JSON.stringify({
-          type: 'output',
-          data: '[Claude Code] Processing...\n',
-          stream: 'STDOUT'
-        }));
-
-        if (state.processingCommand) {
-          state.commandQueue.push(msg.content);
-          state.ws.send(JSON.stringify({
-            type: 'output',
-            data: `[Queued] Command queued (${state.commandQueue.length} in queue)\n`,
-            stream: 'STDOUT'
-          }));
-          return;
-        }
-
-        // Execute with structured output support
-        executeResumeCommand(state, msg.content, (output) => {
-          if (state.ws && state.ws.readyState === 1) {
-            state.ws.send(JSON.stringify(output));
+        // Send keystrokes directly to Claude Code console via PowerShell
+        if (state.claudePid && isProcessAlive(state.claudePid)) {
+          sendConsoleInput(state.claudePid, msg.content, state);
+        } else {
+          // Fallback: try to find a Claude process and send to it
+          const discovered = discoverSessions();
+          const alive = discovered.find(s => s.isAlive);
+          if (alive && alive.pid) {
+            state.claudePid = alive.pid;
+            state.claudeSessionId = alive.sessionId;
+            sendConsoleInput(alive.pid, msg.content, state);
+          } else {
+            state.ws.send(JSON.stringify({
+              type: 'output',
+              data: 'Error: No running Claude Code session found.\n',
+              stream: 'STDERR'
+            }));
           }
-        }, state.outputParser);
+        }
         break;
 
       case 'select_session':
