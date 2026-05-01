@@ -76,6 +76,7 @@ fun InputBar(
             onValueChange = onTextChange,
             modifier = Modifier
                 .weight(1f)
+                .padding(horizontal = 12.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(InputSurface, RoundedCornerShape(20.dp)),
             placeholder = {

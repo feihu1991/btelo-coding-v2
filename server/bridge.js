@@ -289,8 +289,10 @@ function parseJsonlHistory(filePath) {
   for (const line of lines) {
     try {
       const entry = JSON.parse(line);
-      const msg = parseJsonlEntry(entry);
-      if (msg) messages.push(msg);
+      const msgs = parseJsonlEntry(entry);
+      for (const m of msgs) {
+        if (!m.isFromUser) messages.push(m);
+      }
     } catch (e) { /* skip bad lines */ }
   }
   return messages;
@@ -333,6 +335,7 @@ function watchJsonlFile(state, onNewMessage) {
   if (!filePath || !fs.existsSync(filePath)) return;
 
   let lastSize = fs.statSync(filePath).size;
+  const seenIds = new Set();
 
   state.fileWatcher = fs.watch(filePath, (eventType) => {
     if (eventType !== 'change') return;
@@ -354,9 +357,13 @@ function watchJsonlFile(state, onNewMessage) {
         for (const line of lines) {
           try {
             const entry = JSON.parse(line);
+            // Skip if already processed this entry
+            const entryId = entry.uuid || (entry.message && entry.message.id);
+            if (entryId && seenIds.has(entryId)) continue;
+            if (entryId) seenIds.add(entryId);
+
             const msgs = parseJsonlEntry(entry);
             for (const msg of msgs) {
-              // Only forward assistant messages - phone already shows user's own messages
               if (msg && !msg.isFromUser) onNewMessage(msg);
             }
           } catch (e) { /* skip bad lines */ }
