@@ -25,7 +25,7 @@ import java.io.IOException
 import javax.inject.Inject
 
 data class ScanUiState(
-    val serverAddress: String = "",
+    val serverAddress: String = "https://boned-uncorrupt-java.ngrok-free.dev",
     val isDiscovering: Boolean = false,
     val isConnecting: Boolean = false,
     val isConnected: Boolean = false,
