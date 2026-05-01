@@ -163,7 +163,7 @@ class MessageRepositoryImpl @Inject constructor(
             // BTELO Coding v2: Structured Output handling
             is BteloMessage.StructuredOutput -> {
                 Logger.d(tag, "收到结构化输出: ${message.outputType}")
-                
+
                 val domainOutputType = when (message.outputType) {
                     OutputType.CLAUDE_RESPONSE -> DomainOutputType.CLAUDE_RESPONSE
                     OutputType.TOOL_CALL -> DomainOutputType.TOOL_CALL
@@ -172,7 +172,7 @@ class MessageRepositoryImpl @Inject constructor(
                     OutputType.ERROR -> DomainOutputType.ERROR
                     OutputType.SYSTEM -> DomainOutputType.SYSTEM
                 }
-                
+
                 val metadata = message.metadata?.let { m ->
                     MessageMetadata(
                         toolId = m.toolId,
@@ -189,7 +189,7 @@ class MessageRepositoryImpl @Inject constructor(
                         errorDetails = m.errorDetails
                     )
                 }
-                
+
                 val structuredMessage = Message(
                     id = "struct-${System.currentTimeMillis()}-${java.util.UUID.randomUUID().toString().take(4)}",
                     sessionId = sessionId,
@@ -206,11 +206,11 @@ class MessageRepositoryImpl @Inject constructor(
                     metadata = metadata,
                     thinkingContent = if (message.outputType == OutputType.THINKING) message.content else null
                 )
-                
-                // Emit to structured output flow
+
+                // Emit to structured output flow (ViewModel will handle thinking session logic)
                 _structuredOutputFlow.emit(structuredMessage)
-                
-                // Also save to database for persistence
+
+                // Save to database for persistence
                 safeInsert("StructuredOutput") { messageDao.insertMessage(structuredMessage.toEntity()) }
             }
             

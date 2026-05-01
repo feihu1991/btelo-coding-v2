@@ -23,11 +23,25 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+data class ThinkingMessage(
+    val type: ThinkingMessageType,
+    val content: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+enum class ThinkingMessageType {
+    THINKING,    // 思考过程
+    TOOL_CALL,   // 工具调用
+    FILE_OP,     // 文件操作
+    ERROR,       // 错误信息
+    SYSTEM       // 系统消息
+}
+
 data class ThinkingSession(
     val isActive: Boolean = false,
-    val thinkingContent: String = "",
-    val toolsCalled: List<String> = emptyList(),
-    val currentTool: String = ""
+    val messages: List<ThinkingMessage> = emptyList(),
+    val currentMessageType: ThinkingMessageType? = null,
+    val currentMessage: String = ""
 )
 
 data class ChatUiState(
@@ -112,31 +126,9 @@ class ChatViewModel @Inject constructor(
     private fun loadMessages() {
         val job = viewModelScope.launch {
             messageRepository.getMessages(sessionId).collect { messages ->
-                // Clear thinking session when new messages arrive
-                if (_uiState.value.thinkingSession.isActive && messages.isNotEmpty()) {
-                    val session = _uiState.value.thinkingSession
-                    if (session.toolsCalled.isNotEmpty() || session.thinkingContent.isNotEmpty()) {
-                        val thinkingMsg = Message(
-                            id = "think-${System.currentTimeMillis()}",
-                            sessionId = "",
-                            content = session.thinkingContent.ifEmpty { "深度思考" },
-                            type = MessageType.THINKING,
-                            timestamp = System.currentTimeMillis() - 1000,
-                            isFromUser = false,
-                            outputType = DomainOutputType.THINKING,
-                            metadata = MessageMetadata(
-                                toolNames = session.toolsCalled,
-                                isCollapsed = true
-                            )
-                        )
-                        viewModelScope.launch { messageRepository.saveMessage(thinkingMsg) }
-                    }
-                }
+                // Only update messages list, preserve thinking session state
                 _uiState.value = _uiState.value.copy(
-                    messages = messages,
-                    thinkingSession = if (_uiState.value.thinkingSession.isActive) ThinkingSession() else _uiState.value.thinkingSession,
-                    isStreaming = if (_uiState.value.thinkingSession.isActive) false else _uiState.value.isStreaming,
-                    streamingContent = if (_uiState.value.thinkingSession.isActive) "" else _uiState.value.streamingContent
+                    messages = messages
                 )
             }
         }
@@ -179,16 +171,21 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun processStructuredOutput(structuredMsg: Message) {
-        // THINKING: start thinking session
-        if (structuredMsg.outputType == DomainOutputType.THINKING) {
-            val session = _uiState.value.thinkingSession
+        val currentSession = _uiState.value.thinkingSession
+        val outputType = structuredMsg.outputType
+
+        // Start thinking session on first THINKING message
+        if (outputType == DomainOutputType.THINKING && !currentSession.isActive) {
+            val thinkingMsg = ThinkingMessage(
+                type = ThinkingMessageType.THINKING,
+                content = structuredMsg.content
+            )
             _uiState.value = _uiState.value.copy(
-                thinkingSession = session.copy(
+                thinkingSession = ThinkingSession(
                     isActive = true,
-                    thinkingContent = if (session.thinkingContent.isEmpty()) structuredMsg.content
-                        else session.thinkingContent + structuredMsg.content,
-                    toolsCalled = session.toolsCalled,
-                    currentTool = ""
+                    messages = listOf(thinkingMsg),
+                    currentMessageType = ThinkingMessageType.THINKING,
+                    currentMessage = "深度思考中…"
                 ),
                 isStreaming = true,
                 streamingContent = "…"
@@ -196,40 +193,70 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // TOOL_CALL during thinking: add to thinking session
-        if (structuredMsg.outputType == DomainOutputType.TOOL_CALL && _uiState.value.thinkingSession.isActive) {
-            val session = _uiState.value.thinkingSession
-            val toolName = structuredMsg.metadata?.toolName ?: structuredMsg.content
-            _uiState.value = _uiState.value.copy(
-                thinkingSession = session.copy(
-                    toolsCalled = session.toolsCalled + toolName,
-                    currentTool = toolName
+        // Add messages to active thinking session
+        if (currentSession.isActive && outputType != DomainOutputType.CLAUDE_RESPONSE) {
+            val thinkingType = when (outputType) {
+                DomainOutputType.THINKING -> ThinkingMessageType.THINKING
+                DomainOutputType.TOOL_CALL -> ThinkingMessageType.TOOL_CALL
+                DomainOutputType.FILE_OP -> ThinkingMessageType.FILE_OP
+                DomainOutputType.ERROR -> ThinkingMessageType.ERROR
+                DomainOutputType.SYSTEM -> ThinkingMessageType.SYSTEM
+                else -> null
+            }
+
+            if (thinkingType != null) {
+                val newMsg = ThinkingMessage(
+                    type = thinkingType,
+                    content = structuredMsg.content
                 )
-            )
-            // Also save tool card to messages
-            viewModelScope.launch { messageRepository.saveMessage(structuredMsg) }
+                val currentMessage = when (thinkingType) {
+                    ThinkingMessageType.TOOL_CALL -> "调用 ${structuredMsg.metadata?.toolName ?: structuredMsg.content}..."
+                    ThinkingMessageType.FILE_OP -> "文件操作: ${structuredMsg.metadata?.fileOpType ?: ""}"
+                    ThinkingMessageType.THINKING -> "深度思考中…"
+                    ThinkingMessageType.ERROR -> "发生错误"
+                    ThinkingMessageType.SYSTEM -> "系统消息"
+                }
+                _uiState.value = _uiState.value.copy(
+                    thinkingSession = currentSession.copy(
+                        messages = currentSession.messages + newMsg,
+                        currentMessageType = thinkingType,
+                        currentMessage = currentMessage
+                    )
+                )
+            }
             return
         }
 
-        // Text response: finalize thinking session
-        if (_uiState.value.thinkingSession.isActive) {
-            val session = _uiState.value.thinkingSession
-            if (session.toolsCalled.isNotEmpty() || session.thinkingContent.isNotEmpty()) {
+        // Text response (CLAUDE_RESPONSE): finalize thinking session
+        if (currentSession.isActive && outputType == DomainOutputType.CLAUDE_RESPONSE) {
+            // Save consolidated thinking message to DB
+            if (currentSession.messages.isNotEmpty()) {
+                val thinkingContent = currentSession.messages
+                    .filter { it.type == ThinkingMessageType.THINKING }
+                    .joinToString("\n") { it.content }
+                    .ifEmpty { "深度思考" }
+
+                val toolNames = currentSession.messages
+                    .filter { it.type == ThinkingMessageType.TOOL_CALL }
+                    .map { it.content }
+
                 val thinkingMsg = Message(
                     id = "think-${System.currentTimeMillis()}",
-                    sessionId = "",
-                    content = session.thinkingContent.ifEmpty { "深度思考" },
+                    sessionId = sessionId,
+                    content = thinkingContent,
                     type = MessageType.THINKING,
                     timestamp = System.currentTimeMillis() - 1000,
                     isFromUser = false,
                     outputType = DomainOutputType.THINKING,
                     metadata = MessageMetadata(
-                        toolNames = session.toolsCalled,
+                        toolNames = toolNames,
                         isCollapsed = true
                     )
                 )
                 viewModelScope.launch { messageRepository.saveMessage(thinkingMsg) }
             }
+
+            // Reset thinking session and set streaming content for Claude's response
             _uiState.value = _uiState.value.copy(
                 thinkingSession = ThinkingSession(),
                 isStreaming = true,
@@ -238,6 +265,7 @@ class ChatViewModel @Inject constructor(
             return
         }
 
+        // Fallback: buffer non-thinking structured outputs
         val currentBuffer = _uiState.value.structuredOutputBuffer
         val newPart = StructuredPart(
             outputType = structuredMsg.outputType?.let {
@@ -380,12 +408,30 @@ class ChatViewModel @Inject constructor(
         val content = _uiState.value.inputText.trim()
         if (content.isBlank()) return
 
-        // Set streaming state synchronously so UI updates immediately
+        // Create user message for immediate UI display
+        val userMessage = Message(
+            id = "user-${System.currentTimeMillis()}",
+            sessionId = sessionId,
+            content = content,
+            type = MessageType.COMMAND,
+            timestamp = System.currentTimeMillis(),
+            isFromUser = true
+        )
+
+        // Add user message to UI state and immediately show thinking box
+        val currentMessages = _uiState.value.messages
         _uiState.value = _uiState.value.copy(
+            messages = currentMessages + userMessage,
             isLoading = true,
             inputText = "",
-            streamingContent = "…",
+            thinkingSession = ThinkingSession(
+                isActive = true,
+                messages = emptyList(),
+                currentMessageType = null,
+                currentMessage = "等待响应…"
+            ),
             isStreaming = true,
+            streamingContent = "…",
             structuredOutputBuffer = StructuredOutputBuffer()
         )
 
@@ -399,6 +445,7 @@ class ChatViewModel @Inject constructor(
                         isLoading = false,
                         isStreaming = false,
                         streamingContent = "",
+                        thinkingSession = ThinkingSession(),
                         error = exception.message
                     )
                 }

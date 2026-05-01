@@ -112,7 +112,7 @@ fun MessageBubble(message: Message) {
 
 @Composable
 private fun UserBubble(message: Message, clipboardManager: androidx.compose.ui.platform.ClipboardManager) {
-    Row(
+    Column(
         modifier = Modifier
             .padding(
                 start = 60.dp,
@@ -120,7 +120,7 @@ private fun UserBubble(message: Message, clipboardManager: androidx.compose.ui.p
                 top = 4.dp,
                 bottom = 2.dp
             ),
-        horizontalArrangement = Arrangement.End
+        horizontalAlignment = Alignment.End
     ) {
         Box(
             modifier = Modifier
@@ -133,6 +133,17 @@ private fun UserBubble(message: Message, clipboardManager: androidx.compose.ui.p
                 color = TextOnBubble,
                 style = MaterialTheme.typography.bodyMedium,
                 lineHeight = 22.sp
+            )
+        }
+        IconButton(
+            onClick = { clipboardManager.setText(AnnotatedString(message.content)) },
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                Icons.Default.ContentCopy,
+                contentDescription = "复制",
+                tint = TextTertiary,
+                modifier = Modifier.size(14.dp)
             )
         }
     }
@@ -581,12 +592,18 @@ fun CodeBlock(code: String, language: String = "") {
 }
 
 @Composable
-fun ThinkingSessionBubble(session: ThinkingSession) {
+fun ThinkingBox(session: ThinkingSession) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    // Rotating animation for active thinking
     val infiniteTransition = rememberInfiniteTransition()
     val rotationAngle by infiniteTransition.animateFloat(
         initialValue = 0f, targetValue = 360f,
         animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Restart)
     )
+
+    // Group messages by type
+    val groupedMessages = session.messages.groupBy { it.type }
 
     Column(
         modifier = Modifier
@@ -596,42 +613,131 @@ fun ThinkingSessionBubble(session: ThinkingSession) {
     ) {
         Column(
             modifier = Modifier
-                .clip(AiBubbleShape)
-                .background(AiBubbleDark)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(ThinkingPurple.copy(alpha = 0.1f))
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(ThinkingPurple.copy(alpha = 0.5f), ThinkingPurple.copy(alpha = 0.2f))
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                )
+                .clickable { isExpanded = !isExpanded }
+                .padding(12.dp)
         ) {
-            // Header: rotating lightbulb + status text
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Header: rotating icon + current message
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Icon(
-                    Icons.Default.Lightbulb,
+                    imageVector = Icons.Default.Lightbulb,
                     contentDescription = "Thinking",
                     tint = ThinkingPurple,
                     modifier = Modifier
                         .size(20.dp)
-                        .rotate(rotationAngle)
+                        .rotate(if (session.isActive) rotationAngle else 0f)
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (session.currentTool.isNotEmpty()) "正在调用 ${session.currentTool}..."
-                    else "深度思考中…",
+                    text = session.currentMessage.ifEmpty { "思考中…" },
                     color = ThinkingPurple,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = if (isExpanded) "收起" else "展开",
+                    color = TextTertiary,
+                    fontSize = 11.sp
                 )
             }
 
-            // Tool list
-            if (session.toolsCalled.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                HorizontalDivider(color = ThinkingPurple.copy(alpha = 0.2f))
-                Spacer(Modifier.height(4.dp))
-                session.toolsCalled.forEach { tool ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("•", color = ThinkingPurple.copy(alpha = 0.6f), fontSize = 10.sp)
-                        Spacer(Modifier.width(6.dp))
-                        Text(tool, color = TextSecondary, fontSize = 12.sp)
+            // Expanded: show grouped messages
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(modifier = Modifier.padding(top = 8.dp)) {
+                    HorizontalDivider(color = ThinkingPurple.copy(alpha = 0.2f))
+                    Spacer(Modifier.height(4.dp))
+
+                    // Show each message type group
+                    ThinkingMessageType.entries.forEach { type ->
+                        val messages = groupedMessages[type]
+                        if (!messages.isNullOrEmpty()) {
+                            ThinkingTypeSection(type = type, messages = messages)
+                            Spacer(Modifier.height(4.dp))
+                        }
                     }
-                    Spacer(Modifier.height(2.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThinkingTypeSection(type: ThinkingMessageType, messages: List<ThinkingMessage>) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    val (icon, label, color) = when (type) {
+        ThinkingMessageType.THINKING -> Triple(Icons.Default.Lightbulb, "思考过程", ThinkingPurple)
+        ThinkingMessageType.TOOL_CALL -> Triple(Icons.Default.Terminal, "工具调用", BubbleGradientStart)
+        ThinkingMessageType.FILE_OP -> Triple(Icons.Default.Description, "文件操作", WarningAmber)
+        ThinkingMessageType.ERROR -> Triple(Icons.Default.Error, "错误信息", RedError)
+        ThinkingMessageType.SYSTEM -> Triple(Icons.Default.Code, "系统消息", TextSecondary)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(color.copy(alpha = 0.05f))
+            .clickable { isExpanded = !isExpanded }
+            .padding(8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = color,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = "$label (${messages.size})",
+                color = color,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.Refresh else Icons.Default.PlayArrow,
+                contentDescription = if (isExpanded) "收起" else "展开",
+                tint = TextTertiary,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            Column(modifier = Modifier.padding(top = 4.dp)) {
+                messages.forEach { msg ->
+                    Text(
+                        text = msg.content,
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
                 }
             }
         }

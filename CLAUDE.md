@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 当前状态（2026-05-01）
+
+**核心需求：** 实现统一思考框，所有子类型消息在一个框内显示，展开后可折叠查看。
+
+**已知问题：**
+1. 键盘弹出时消息列表不上移（imePadding 问题）
+2. 详见 `REQUIREMENTS.md`
+
 ## Overview
 
 BTELO Coding is a mobile-to-desktop bridge: the Android app connects to a Node.js relay server running on the same machine as Claude Code CLI, allowing users to interact with Claude Code sessions from their phone via WebSocket.

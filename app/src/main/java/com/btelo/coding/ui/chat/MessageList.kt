@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -21,26 +20,17 @@ fun MessageList(
 ) {
     val listState = rememberLazyListState()
 
-    // Scroll to bottom on initial load only
-    val wasEmpty = remember { messages.isEmpty() }
-    LaunchedEffect(messages.isNotEmpty()) {
-        if (messages.isNotEmpty() && wasEmpty) {
-            listState.scrollToItem(messages.size - 1)
-        }
-    }
-
-    // Auto-scroll when new messages arrive and user is near bottom
-    val shouldAutoScroll by remember {
-        derivedStateOf {
-            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            val totalItems = listState.layoutInfo.totalItemsCount
-            totalItems == 0 || lastVisibleItem >= totalItems - 2
-        }
-    }
-
-    LaunchedEffect(messages.size, streamingContent, thinkingSession?.currentTool) {
-        if (shouldAutoScroll && messages.isNotEmpty()) {
+    // Auto-scroll when new messages arrive (always scroll to bottom)
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    // Auto-scroll when streaming content updates or thinking session changes
+    LaunchedEffect(streamingContent, thinkingSession?.currentMessage, thinkingSession?.isActive) {
+        if (messages.isNotEmpty() || thinkingSession?.isActive == true) {
+            listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
         }
     }
 
@@ -52,10 +42,10 @@ fun MessageList(
             MessageBubble(message = message)
         }
 
-        // Thinking session indicator (active thinking with rotating icon + tools)
+        // Thinking box (shows all thinking messages in one collapsible box)
         if (thinkingSession != null && thinkingSession.isActive) {
-            item(key = "thinking_session") {
-                ThinkingSessionBubble(session = thinkingSession)
+            item(key = "thinking_box") {
+                ThinkingBox(session = thinkingSession)
             }
         }
 
