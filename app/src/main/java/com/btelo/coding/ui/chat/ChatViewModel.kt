@@ -112,7 +112,38 @@ class ChatViewModel @Inject constructor(
     private fun loadMessages() {
         val job = viewModelScope.launch {
             messageRepository.getMessages(sessionId).collect { messages ->
-                _uiState.value = _uiState.value.copy(messages = messages)
+                // Clear thinking session when new messages arrive
+                if (_uiState.value.thinkingSession.isActive && messages.isNotEmpty()) {
+                    val session = _uiState.value.thinkingSession
+                    if (session.toolsCalled.isNotEmpty() || session.thinkingContent.isNotEmpty()) {
+                        val thinkingMsg = Message(
+                            id = "think-${System.currentTimeMillis()}",
+                            sessionId = "",
+                            content = session.thinkingContent.ifEmpty { "深度思考" },
+                            type = MessageType.THINKING,
+                            timestamp = System.currentTimeMillis() - 1000,
+                            isFromUser = false,
+                            outputType = DomainOutputType.THINKING,
+                            metadata = MessageMetadata(
+                                toolNames = session.toolsCalled,
+                                isCollapsed = true
+                            )
+                        )
+                        _uiState.value = _uiState.value.copy(
+                            messages = messages + thinkingMsg,
+                            thinkingSession = ThinkingSession(),
+                            isStreaming = false,
+                            streamingContent = ""
+                        )
+                        return@collect
+                    }
+                }
+                _uiState.value = _uiState.value.copy(
+                    messages = messages,
+                    thinkingSession = if (_uiState.value.thinkingSession.isActive) ThinkingSession() else _uiState.value.thinkingSession,
+                    isStreaming = if (_uiState.value.thinkingSession.isActive) false else _uiState.value.isStreaming,
+                    streamingContent = if (_uiState.value.thinkingSession.isActive) "" else _uiState.value.streamingContent
+                )
             }
         }
         coroutineJobs.add(job)
