@@ -1,233 +1,140 @@
 # BTELO Coding
 
-> 手机远程控制 Claude Code — 通过手机 App 随时随地与 Claude 交互，实时查看代码变更。
+> 手机远程控制 Claude Code — 通过手机 App 随时随地与 Claude 交互，实时同步到终端。
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Android](https://img.shields.io/badge/Android-10%2B-green.svg)](https://developer.android.com)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-v3.5-blue.svg)](https://docs.anthropic.com/claude-code)
 
-## 项目介绍
+## 工作原理
 
-BTELO Coding 是一个让你在手机上远程控制 Claude Code 的解决方案。它包含两个部分：
-
-1. **Android App** (Kotlin + Jetpack Compose)
-   - 完整的聊天界面，支持流式输出
-   - 会话管理
-   - 结构化消息渲染（工具调用、思考过程等）
-
-2. **Server** (Node.js)
-   - **Relay Server** (`relay.js`)：消息转发器
-   - **Bridge CLI** (`bridge.js`)：Claude Code CLI 管理器
-   - **PTY Bridge** (`pty-bridge.js`)：伪终端模式
-   - **Console Bridge** (`console-bridge/`)：Win32 Console API 控制方案
-
-## 架构图
+手机消息通过 WebSocket 发送到本地 Relay Server，Bridge 用 `SendKeys`（Windows SendInput API）直接把按键输入到当前 Claude Code 终端，回复通过 JSONL 文件监听实时回传手机。
 
 ```
-┌─────────────────┐      WebSocket       ┌─────────────────┐
-│   Mobile App    │ ←──────────────────→ │  Relay Server   │
-│  (Kotlin/UI)   │                      │   (relay.js)    │
-└─────────────────┘                      └────────┬────────┘
-                                                  │
-                                                  WebSocket
-                                                  │
-                                           ┌──────▼────────┐
-                                           │ Bridge CLI     │
-                                           │ (bridge.js /   │
-                                           │  pty-bridge.js)│
-                                           └──────┬────────┘
-                                                  │
-                                           ┌──────▼────────┐
-                                           │ Claude Code    │
-                                           │ (CLI)          │
-                                           └────────────────┘
+手机 App ──WebSocket──▶ Relay Server ◀──WebSocket── Bridge CLI
+                                                    │
+                                           SendKeys (PowerShell)
+                                                    │
+                                           ┌────────▼────────┐
+                                           │  Claude Code     │
+                                           │  (当前终端)       │
+                                           └────────┬────────┘
+                                                    │
+                                          JSONL 文件监听
+                                                    │
+                                           ◀── 回复回传手机 ──
 ```
-
-## 三通道控制方案
-
-BTELO Coding v2 采用三通道方案实现对 Claude Code 的控制：
-
-| 通道 | 方式 | 适用场景 | 优点 | 缺点 |
-|------|------|----------|------|------|
-| **Resume 通道** | `claude -p` 命令 | 快速命令执行 | 简单可靠 | 无交互 |
-| **PTY 通道** | node-pty 伪终端 | 交互式操作 | 真终端体验 | 平台差异 |
-| **Console API 通道** | Win32 Console API | Windows 深度控制 | 可读写控制台 | 仅 Windows |
-
-### Console API 通道 (POC 阶段)
-
-> 🔬 **当前状态**：概念验证 (POC) 阶段
-
-使用 Win32 Console API (`AttachConsole` / `WriteConsoleInput` / `ReadConsoleOutput`) 直接读写 Claude Code 控制台缓冲区：
-
-```powershell
-# PowerShell POC 测试
-powershell -ExecutionPolicy Bypass -File server/console-bridge/test-console-bridge.ps1
-```
-
-**核心 API**：
-- `AttachConsole(pid)` - 附加到目标进程控制台
-- `WriteConsoleInput()` - 模拟键盘输入
-- `ReadConsoleOutput()` - 读取屏幕内容
-- `FreeConsole()` - 分离控制台
-
-详见 [Console Bridge 文档](./server/console-bridge/README.md)
 
 ## 快速开始
 
-### 1. 安装 Claude Code
-
-```bash
-npm install -g @anthropic-ai/claude-code
-claude --version  # 确认安装成功
-```
-
-### 2. 启动 Relay Server
+### 1. 启动 Relay Server
 
 ```bash
 cd server
 npm install
-npm start
+npm start          # 启动 relay，默认 8080 端口
 ```
 
-### 3. 启动 Bridge CLI
+### 2. 启动 Bridge CLI
 
 ```bash
-# Resume 模式（推荐）
-npm run bridge -- --workdir /path/to/project
-
-# PTY 模式（交互式终端）
-npm run pty -- --session <session_id> --workdir /path/to/project
+cd server
+node bridge.js --workdir /path/to/project
 ```
 
-### 4. 扫码连接
+Bridge 启动后显示 6 位 Auth Code。
 
-Bridge 启动后会显示 QR 码，用 Android App 扫码即可连接。
+### 3. 手机连接
 
-## 两种运行模式
+1. 打开 BTELO App
+2. 输入服务器地址（默认已填 ngrok 公网地址）
+3. 点击 **发现设备** → 选择 Bridge → 输入 Auth Code
+4. 连接成功，开始收发消息
 
-### Resume 模式 (默认)
-
-使用 `claude -p <command> -r <session_id>` 执行命令：
-- 每次命令启动新进程
-- 通过 `--output-format stream-json` 获取结构化输出
-- 适合快速命令执行
+### 4. 公网访问（可选）
 
 ```bash
-node bridge.js --mode resume --workdir /path/to/project
+# ngrok（固定域名，免费 1 端点在线）
+ngrok config add-authtoken <your-token>
+ngrok http 8080
+
+# localtunnel（每次重启 URL 变化）
+npx localtunnel --port 8080
 ```
 
-### PTY 模式
-
-使用 node-pty 创建伪终端：
-- 真正的交互式终端体验
-- 支持终端resize
-- 适合需要交互的场景
-
-```bash
-node pty-bridge.js --session <session_id> --workdir /path/to/project
-```
-
-## 结构化输出
-
-BTELO Coding v2 支持解析 Claude Code 的 `stream-json` 输出，转换为结构化消息：
-
-| Output Type | 说明 | App 渲染 |
-|-------------|------|----------|
-| `claude_response` | 普通文本响应 | 标准消息气泡 |
-| `tool_call` | 工具调用 | 可折叠工具卡片 |
-| `file_op` | 文件操作 | 文件操作卡片 |
-| `thinking` | 思考过程 | 虚线框，可折叠 |
-| `error` | 错误信息 | 红色错误卡片 |
-| `system` | 系统消息 | 灰色系统卡片 |
-
-## 文件结构
-
-```
-Yami-Coding-Android-new/
-├── app/                          # Android App
-│   └── src/main/java/com/btelo/coding/
-│       ├── domain/model/          # 领域模型 (Message, Session, etc.)
-│       ├── data/
-│       │   ├── local/             # Room 数据库
-│       │   ├── remote/            # WebSocket 客户端
-│       │   └── repository/        # Repository 实现
-│       └── ui/
-│           ├── chat/              # 聊天界面
-│           ├── session/           # 会话列表
-│           └── theme/             # Compose 主题
-│
-├── server/                       # Node.js Server
-│   ├── relay.js                  # 消息转发服务器
-│   ├── bridge.js                 # Bridge CLI (resume 模式)
-│   ├── pty-bridge.js            # PTY 模式 bridge
-│   ├── output-parser.js          # CLI 输出解析器
-│   └── console-bridge/           # Win32 Console API POC
-│       ├── test-console-bridge.ps1  # PowerShell POC
-│       ├── console_bridge.cpp     # N-API C++ 源码
-│       ├── binding.gyp            # node-gyp 配置
-│       ├── index.js               # Node.js 封装
-│       └── test.js                # 测试脚本
-│
-└── docs/                         # 设计文档
-```
-
-## 环境要求
-
-- **Android**: 10+ (API 29)
-- **Node.js**: 16+
-- **Claude Code**: 最新版本
-- **平台**: Linux/macOS/Windows
-
-## 配置
-
-### 环境变量
+## 环境变量
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `PORT` | Server 端口 | 8080 |
-| `PUBLIC_IP` | 公网 IP (远程访问) | 自动检测 |
-| `RELAY_SERVER` | Relay Server 地址 | http://localhost:8080 |
+| `PUBLIC_IP` | 公网 IP | 自动检测局域网 |
+| `RELAY_SERVER` | Relay 地址 | http://localhost:8080 |
 
-### App 连接配置
+## 消息类型
 
-首次连接需要配置 Server 地址和 Token。
+| 类型 | 方向 | 说明 | 手机渲染 |
+|------|------|------|----------|
+| `command` | 手机 → Bridge | 用户命令 | 右侧渐变色气泡 |
+| `new_message` | Bridge → 手机 | 文字回复 | 左侧深色气泡 |
+| `structured_output` | Bridge → 手机 | 结构化消息 | 根据子类型渲染 |
+| `sync_history` | Bridge → 手机 | 批量历史（最近100条） | — |
+| `hook_event` | Plugin → Relay → 手机 | Claude Code 生命周期事件 | — |
+| `session_state` | Bidirectional | 连接状态广播 | 状态指示器 |
 
-## 开发
+### 结构化输出子类型
 
-### 构建 Android App
+| Output Type | 触发条件 | 渲染 |
+|-------------|----------|------|
+| `thinking` | Claude 思考过程 | 🟣 可折叠 Thinking 气泡（紫色虚线框，旋转灯泡图标） |
+| `tool_call` | 工具调用（Read/Bash/Write等） | 🟡 可折叠工具卡片（展开查看参数） |
+| `claude_response` | 普通文本回复 | 标准 AI 消息气泡（支持 markdown） |
+
+## 项目结构
+
+```
+├── app/                          # Android App (Kotlin + Compose)
+│   └── src/main/java/com/btelo/coding/
+│       ├── domain/model/          # Message, Session, MessageMetadata
+│       ├── data/
+│       │   ├── local/             # Room DB + DataStore
+│       │   ├── remote/            # WebSocket, MessageProtocol, encryption
+│       │   └── repository/        # MessageRepositoryImpl, SessionRepository
+│       └── ui/
+│           ├── chat/              # ChatScreen, MessageList, MessageBubble, InputBar
+│           ├── scan/              # ScanScreen, ScanViewModel (bridge discovery)
+│           └── theme/             # Compose 主题和颜色
+│
+├── server/                       # Node.js Server
+│   ├── relay.js                  # 消息转发服务器（Express + WebSocket）
+│   ├── bridge.js                 # Bridge CLI（auth code + JSONL watcher）
+│   ├── index.js                  # Legacy 兼容服务器
+│   ├── output-parser.js          # stream-json 输出解析器
+│   ├── btelo-plugin/             # Claude Code 插件（生命周期钩子）
+│   │   ├── hooks.json            # 钩子配置
+│   │   └── scripts/              # 钩子脚本
+│   └── console-bridge/           # Win32 Console API 方案
+│       ├── console-sender.ps1    # SendKeys 按键注入脚本
+│       └── console_bridge.cpp    # N-API C++ 源码（可选编译）
+│
+└── CLAUDE.md                     # Claude Code 工作指引
+```
+
+## 构建
 
 ```bash
+# Android APK
 ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/Yami-Coding-1.0.0-mvp.apk
+
+# 运行测试
+./gradlew test
 ```
 
-### 运行 Server
+## 技术栈
 
-```bash
-cd server
-node relay.js
-```
-
-### 测试 Console Bridge POC (Windows)
-
-```bash
-cd server/console-bridge
-
-# PowerShell 版本（无需编译）
-powershell -ExecutionPolicy Bypass -File test-console-bridge.ps1
-
-# Node.js 版本（需要编译）
-npm install
-npx node-gyp rebuild
-node test.js
-```
-
-### 测试结构化输出解析器
-
-```bash
-node server/output-parser.js
-# 然后粘贴 Claude Code 的 stream-json 输出
-```
+**Android:** Kotlin, Jetpack Compose, Room, Hilt, OkHttp, Coil
+**Server:** Node.js, Express, WebSocket (ws)
+**通信:** PowerShell SendKeys (Windows), Win32 Console API, JSONL 文件监听
 
 ## License
 
-MIT License - see [LICENSE](./LICENSE) 文件
+MIT
