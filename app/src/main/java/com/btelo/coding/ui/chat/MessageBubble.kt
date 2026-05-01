@@ -639,6 +639,7 @@ fun AiStreamingBubble(partialContent: String) {
                         lineHeight = 22.sp
                     )
                 }
+                if (partialContent != "…") {
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -653,6 +654,7 @@ fun AiStreamingBubble(partialContent: String) {
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium
                     )
+                }
                 }
             }
         }
