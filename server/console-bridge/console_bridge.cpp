@@ -7,10 +7,6 @@
  *   npm install
  *   npx node-gyp rebuild
  * 
- * 或者使用 node-addon-api (推荐):
- *   npm install
- *   npm install node-addon-api
- *   npx node-gyp rebuild
  */
 
 #include <node_api.h>
@@ -151,7 +147,7 @@ napi_value FindProcesses(napi_env env, napi_callback_info info) {
                 }
                 
                 // 检查开头是否匹配
-                if (exeLen > processNameLen && 
+                if (exeLen >= processNameLen && 
                     (exePart[processNameLen] == L'.' || exePart[processNameLen] == L' ' || exePart[processNameLen] == L'\0')) {
                     if (exePart.substr(0, processNameLen) == searchLower) {
                         matched = true;

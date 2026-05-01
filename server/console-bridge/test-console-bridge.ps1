@@ -282,7 +282,8 @@ function Read-ScreenContent {
         $line = -join $lineChars
         $line = $line.TrimEnd()
         
-        if ($line -match '\S') {
+        # P2 #8: 保留所有行，不跳过空行
+        if ($true) {
             $lines += $line
         }
     }
@@ -303,7 +304,7 @@ function Test-ProcessMatchesClaude {
         
         # P2 #13: 改进正则匹配 - 使用更精确的模式
         # 匹配 claude 独立命令或 npm/npx 包名
-        $pattern = '(?i)[\/\\]claude[\.exe"]?\s|--claude|@anthropic[/-]ai[/-]claude|claude-code'
+        $pattern = '(?i)(?:^|[\/\\ ])claude(\.exe)?(\s|$)|@anthropic[/-]ai[/-]claude|claude-code'
         if ($cmdLine -match $pattern) {
             return $true
         }
