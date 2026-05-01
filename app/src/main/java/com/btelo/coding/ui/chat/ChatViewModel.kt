@@ -282,15 +282,16 @@ class ChatViewModel @Inject constructor(
         val content = _uiState.value.inputText.trim()
         if (content.isBlank()) return
 
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                isLoading = true,
-                inputText = "",
-                streamingContent = "…",
-                isStreaming = true,
-                structuredOutputBuffer = StructuredOutputBuffer()
-            )
+        // Set streaming state synchronously so UI updates immediately
+        _uiState.value = _uiState.value.copy(
+            isLoading = true,
+            inputText = "",
+            streamingContent = "…",
+            isStreaming = true,
+            structuredOutputBuffer = StructuredOutputBuffer()
+        )
 
+        viewModelScope.launch {
             messageRepository.sendMessage(sessionId, content)
                 .onSuccess {
                     _uiState.value = _uiState.value.copy(isLoading = false)
