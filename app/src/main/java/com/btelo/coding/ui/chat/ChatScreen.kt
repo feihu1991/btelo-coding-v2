@@ -158,7 +158,6 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .imePadding()
                 .background(AppBackground)
         ) {
             MessageList(

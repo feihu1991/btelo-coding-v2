@@ -129,13 +129,7 @@ class ChatViewModel @Inject constructor(
                                 isCollapsed = true
                             )
                         )
-                        _uiState.value = _uiState.value.copy(
-                            messages = messages + thinkingMsg,
-                            thinkingSession = ThinkingSession(),
-                            isStreaming = false,
-                            streamingContent = ""
-                        )
-                        return@collect
+                        viewModelScope.launch { messageRepository.saveMessage(thinkingMsg) }
                     }
                 }
                 _uiState.value = _uiState.value.copy(
