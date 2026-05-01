@@ -1,7 +1,15 @@
 param(
     [int]$TargetPid,
-    [string]$Text
+    [string]$TextFile
 )
+
+# Read text from file (avoids CLI encoding issues with Unicode)
+$Text = Get-Content -Path $TextFile -Raw -Encoding UTF8
+
+if (-not $Text) {
+    Write-Error "No text to send"
+    exit 1
+}
 
 Add-Type -TypeDefinition @'
 using System;
@@ -45,7 +53,7 @@ if ($hWnd -eq [IntPtr]::Zero) {
 [K]::Focus($hWnd)
 Start-Sleep -Milliseconds 50
 
-# SendKeys sends keystrokes to the foreground window via SendInput API
+# SendKeys via SendInput API
 [System.Windows.Forms.SendKeys]::SendWait($Text + "{ENTER}")
 
 Write-Output "OK"

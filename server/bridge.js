@@ -376,22 +376,35 @@ function formatClaudeEvent(event) {
 
 // ============================================================
 // Send keystrokes directly to Claude Code console via PowerShell
+// With queue to prevent concurrent SendKeys conflicts
 // ============================================================
+const consoleQueue = [];
+let consoleBusy = false;
+
 function sendConsoleInput(pid, text, state) {
+  consoleQueue.push({ pid, text, state });
+  processConsoleQueue();
+}
+
+function processConsoleQueue() {
+  if (consoleBusy || consoleQueue.length === 0) return;
+  consoleBusy = true;
+
+  const { pid, text, state } = consoleQueue.shift();
   const scriptPath = path.join(__dirname, 'console-bridge', 'console-sender.ps1');
 
-  // Escape text for PowerShell: double-quote and escape embedded double quotes
-  const escapedText = text.replace(/"/g, '""');
-  const psArgs = [
+  // Write text to temp file to avoid CLI encoding issues with Chinese
+  const tmpFile = path.join(os.tmpdir(), `btelo-input-${Date.now()}.txt`);
+  fs.writeFileSync(tmpFile, text, 'utf-8');
+
+  console.log(`[BRIDGE] Sending keystrokes to PID ${pid} (queue: ${consoleQueue.length})...`);
+
+  const child = spawn('powershell', [
     '-ExecutionPolicy', 'Bypass',
     '-File', scriptPath,
     '-TargetPid', String(pid),
-    '-Text', escapedText
-  ];
-
-  console.log(`[BRIDGE] Sending keystrokes to PID ${pid}...`);
-
-  const child = spawn('powershell', psArgs, {
+    '-TextFile', tmpFile
+  ], {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true
   });
@@ -402,30 +415,30 @@ function sendConsoleInput(pid, text, state) {
   });
 
   child.on('close', (code) => {
+    // Clean up temp file
+    try { fs.unlinkSync(tmpFile); } catch (e) { /* ignore */ }
+
     if (code === 0) {
       console.log(`[BRIDGE] Keystrokes sent to PID ${pid}`);
-      state.ws.send(JSON.stringify({
-        type: 'output',
-        data: `[Sent] ${text}\n`,
-        stream: 'STDOUT'
-      }));
     } else {
       console.error(`[BRIDGE] Console send failed (code ${code}): ${stderr.trim()}`);
       state.ws.send(JSON.stringify({
         type: 'output',
-        data: `Error: Failed to send input (code ${code}). Run as Administrator?\n${stderr.trim()}\n`,
+        data: `Error: ${stderr.trim()}\n`,
         stream: 'STDERR'
       }));
     }
+
+    // Process next in queue
+    consoleBusy = false;
+    setTimeout(() => processConsoleQueue(), 300); // small delay between sends
   });
 
   child.on('error', (err) => {
+    try { fs.unlinkSync(tmpFile); } catch (e) { /* ignore */ }
     console.error(`[BRIDGE] Failed to start PowerShell: ${err.message}`);
-    state.ws.send(JSON.stringify({
-      type: 'output',
-      data: `Error: PowerShell not available: ${err.message}\n`,
-      stream: 'STDERR'
-    }));
+    consoleBusy = false;
+    setTimeout(() => processConsoleQueue(), 300);
   });
 }
 
