@@ -93,7 +93,8 @@ sealed class BteloMessage {
         val outputType: OutputType,
         val content: String,
         val metadata: OutputMetadata,
-        val timestamp: String
+        val timestamp: String,
+        val id: String? = null
     ) : BteloMessage()
     
     /**
@@ -215,6 +216,7 @@ class MessageProtocol(private val gson: Gson) {
             }
             is BteloMessage.StructuredOutput -> {
                 json.addProperty("type", "structured_output")
+                message.id?.takeIf { it.isNotBlank() }?.let { json.addProperty("id", it) }
                 json.addProperty("output_type", message.outputType.name.lowercase())
                 json.addProperty("content", message.content)
                 json.add("metadata", gson.toJsonTree(message.metadata))
@@ -258,16 +260,19 @@ class MessageProtocol(private val gson: Gson) {
     private fun deserializeInternal(jsonObject: JsonObject): BteloMessage? {
         return try {
             when (val type = jsonObject.get("type")?.asString) {
-                "command" -> BteloMessage.Command(
-                    content = jsonObject.get("content")?.asString ?: "",
-                    type = InputType.valueOf(
-                        jsonObject.get("inputType")?.asString?.uppercase() ?: "TEXT"
+                "command" -> {
+                    val content = optionalString(jsonObject, "content") ?: return null
+                    BteloMessage.Command(
+                        content = content,
+                        type = InputType.valueOf(
+                            optionalString(jsonObject, "inputType")?.uppercase() ?: "TEXT"
+                        )
                     )
-                )
+                }
                 "output" -> BteloMessage.Output(
-                    data = jsonObject.get("data")?.asString ?: "",
+                    data = optionalString(jsonObject, "data") ?: return null,
                     stream = StreamType.valueOf(
-                        jsonObject.get("stream")?.asString?.uppercase() ?: "STDOUT"
+                        optionalString(jsonObject, "stream")?.uppercase() ?: "STDOUT"
                     )
                 )
                 "status" -> BteloMessage.Status(
@@ -358,9 +363,10 @@ class MessageProtocol(private val gson: Gson) {
                     
                     BteloMessage.StructuredOutput(
                         outputType = outputType,
-                        content = jsonObject.get("content")?.asString ?: "",
+                        content = optionalString(jsonObject, "content") ?: "",
                         metadata = metadata,
-                        timestamp = jsonObject.get("timestamp")?.asString ?: ""
+                        timestamp = optionalString(jsonObject, "timestamp") ?: "",
+                        id = optionalString(jsonObject, "id") ?: optionalString(jsonObject, "event_id")
                     )
                 }
                 
@@ -417,5 +423,11 @@ class MessageProtocol(private val gson: Gson) {
             Logger.e(tag, "消息字段解析失败", e)
             null
         }
+    }
+
+    private fun optionalString(jsonObject: JsonObject, field: String): String? {
+        val element = jsonObject.get(field) ?: return null
+        if (element.isJsonNull) return null
+        return element.asString
     }
 }

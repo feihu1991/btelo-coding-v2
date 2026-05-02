@@ -117,8 +117,6 @@ class ChatViewModel @Inject constructor(
         }
         coroutineJobs.add(job)
         loadMessages()
-        observeOutput()
-        observeStructuredOutput()
         observeConnectionState()
         observeSession()
     }
@@ -126,9 +124,18 @@ class ChatViewModel @Inject constructor(
     private fun loadMessages() {
         val job = viewModelScope.launch {
             messageRepository.getMessages(sessionId).collect { messages ->
-                // Only update messages list, preserve thinking session state
+                val currentState = _uiState.value
+                val latestMessage = messages.lastOrNull()
+                val shouldClearPending = latestMessage != null &&
+                    !latestMessage.isFromUser &&
+                    (currentState.isLoading || currentState.isStreaming || currentState.thinkingSession.isActive)
+
                 _uiState.value = _uiState.value.copy(
-                    messages = messages
+                    messages = messages,
+                    isLoading = if (shouldClearPending) false else currentState.isLoading,
+                    isStreaming = if (shouldClearPending) false else currentState.isStreaming,
+                    streamingContent = if (shouldClearPending) "" else currentState.streamingContent,
+                    thinkingSession = if (shouldClearPending) ThinkingSession() else currentState.thinkingSession
                 )
             }
         }
@@ -408,20 +415,9 @@ class ChatViewModel @Inject constructor(
         val content = _uiState.value.inputText.trim()
         if (content.isBlank()) return
 
-        // Create user message for immediate UI display
-        val userMessage = Message(
-            id = "user-${System.currentTimeMillis()}",
-            sessionId = sessionId,
-            content = content,
-            type = MessageType.COMMAND,
-            timestamp = System.currentTimeMillis(),
-            isFromUser = true
-        )
-
-        // Add user message to UI state and immediately show thinking box
-        val currentMessages = _uiState.value.messages
+        // Keep the input as pending UI only. The confirmed user message comes
+        // from Claude's transcript so phone and terminal share one source.
         _uiState.value = _uiState.value.copy(
-            messages = currentMessages + userMessage,
             isLoading = true,
             inputText = "",
             thinkingSession = ThinkingSession(

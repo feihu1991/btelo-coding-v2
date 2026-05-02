@@ -113,6 +113,8 @@ function toBridgeMessage(relaySessionId, parsed) {
     case 'tool_use':
       return {
         type: 'structured_output',
+        id: parsed.id,
+        event_id: parsed.id,
         session_id: relaySessionId,
         output_type: 'tool_call',
         content: parsed.content,
@@ -130,6 +132,8 @@ function toBridgeMessage(relaySessionId, parsed) {
     case 'file_op':
       return {
         type: 'structured_output',
+        id: parsed.id,
+        event_id: parsed.id,
         session_id: relaySessionId,
         output_type: 'file_op',
         content: parsed.content,
@@ -150,6 +154,8 @@ function toBridgeMessage(relaySessionId, parsed) {
     case 'thinking':
       return {
         type: 'structured_output',
+        id: parsed.id,
+        event_id: parsed.id,
         session_id: relaySessionId,
         output_type: 'thinking',
         content: parsed.content,
@@ -160,6 +166,8 @@ function toBridgeMessage(relaySessionId, parsed) {
     case 'system':
       return {
         type: 'structured_output',
+        id: parsed.id,
+        event_id: parsed.id,
         session_id: relaySessionId,
         output_type: 'system',
         content: parsed.content,
@@ -205,11 +213,13 @@ class TranscriptWatcher {
     this.watcher = null;
     this.debounce = null;
     this.seenIds = new Set();
+    this.partialLine = '';
   }
 
   loadHistory() {
     const parsed = parseTranscriptHistory(this.filePath, this.historyLimit);
     for (const item of parsed) this.seenIds.add(item.id);
+    this.partialLine = '';
     if (this.filePath && fs.existsSync(this.filePath)) {
       try { this.lastSize = fs.statSync(this.filePath).size; } catch { this.lastSize = 0; }
     }
@@ -242,6 +252,11 @@ class TranscriptWatcher {
   readIncrement() {
     try {
       const currentSize = fs.statSync(this.filePath).size;
+      if (currentSize < this.lastSize) {
+        this.lastSize = 0;
+        this.partialLine = '';
+        this.seenIds.clear();
+      }
       if (currentSize <= this.lastSize) return;
 
       const fd = fs.openSync(this.filePath, 'r');
@@ -250,8 +265,12 @@ class TranscriptWatcher {
       fs.closeSync(fd);
       this.lastSize = currentSize;
 
-      const lines = buffer.toString('utf-8').split('\n').filter((line) => line.trim());
+      const chunk = this.partialLine + buffer.toString('utf-8');
+      const lines = chunk.split('\n');
+      this.partialLine = lines.pop() || '';
+
       for (const line of lines) {
+        if (!line.trim()) continue;
         let entry = null;
         try { entry = JSON.parse(line); } catch { continue; }
         const parsedItems = parseTranscriptEntry(entry);

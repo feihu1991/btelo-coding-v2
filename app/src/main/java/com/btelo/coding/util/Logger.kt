@@ -27,38 +27,46 @@ object Logger {
     fun d(tag: String, message: String, throwable: Throwable? = null) {
         if (isEnabled(tag)) {
             val fullTag = "$TAG_PREFIX$tag"
-            if (throwable != null) {
-                Log.d(fullTag, message, throwable)
-            } else {
-                Log.d(fullTag, message)
+            logSafely {
+                if (throwable != null) {
+                    Log.d(fullTag, message, throwable)
+                } else {
+                    Log.d(fullTag, message)
+                }
             }
         }
     }
     
     fun i(tag: String, message: String, throwable: Throwable? = null) {
         val fullTag = "$TAG_PREFIX$tag"
-        if (throwable != null) {
-            Log.i(fullTag, message, throwable)
-        } else {
-            Log.i(fullTag, message)
+        logSafely {
+            if (throwable != null) {
+                Log.i(fullTag, message, throwable)
+            } else {
+                Log.i(fullTag, message)
+            }
         }
     }
     
     fun w(tag: String, message: String, throwable: Throwable? = null) {
         val fullTag = "$TAG_PREFIX$tag"
-        if (throwable != null) {
-            Log.w(fullTag, message, throwable)
-        } else {
-            Log.w(fullTag, message)
+        logSafely {
+            if (throwable != null) {
+                Log.w(fullTag, message, throwable)
+            } else {
+                Log.w(fullTag, message)
+            }
         }
     }
     
     fun e(tag: String, message: String, throwable: Throwable? = null) {
         val fullTag = "$TAG_PREFIX$tag"
-        if (throwable != null) {
-            Log.e(fullTag, message, throwable)
-        } else {
-            Log.e(fullTag, message)
+        logSafely {
+            if (throwable != null) {
+                Log.e(fullTag, message, throwable)
+            } else {
+                Log.e(fullTag, message)
+            }
         }
     }
     
@@ -72,5 +80,13 @@ object Logger {
     
     fun disableTag(tag: String) {
         enabledTags.remove(tag)
+    }
+
+    private inline fun logSafely(block: () -> Unit) {
+        try {
+            block()
+        } catch (_: RuntimeException) {
+            // Android Log is not available in local JVM unit tests.
+        }
     }
 }

@@ -133,17 +133,23 @@ class MessageRepositoryImpl @Inject constructor(
             is BteloMessage.SyncHistory -> {
                 // Bulk insert history from Claude Code session
                 Logger.i(tag, "收到历史同步: ${message.messages.size} 条消息")
+                val effectiveSessionId = message.sessionId.ifBlank { sessionId }
                 val entities = message.messages.map { hm ->
                     MessageEntity(
                         id = hm.id,
-                        sessionId = message.sessionId,
+                        sessionId = effectiveSessionId,
                         content = hm.content,
                         type = if (hm.isFromUser) "COMMAND" else "OUTPUT",
                         timestamp = hm.timestamp,
                         isFromUser = hm.isFromUser
                     )
                 }
-                safeInsert("SyncHistory") { messageDao.insertMessages(entities) }
+                safeInsert("SyncHistory") {
+                    messageDao.deleteMessagesBySessionId(effectiveSessionId)
+                    if (entities.isNotEmpty()) {
+                        messageDao.insertMessages(entities)
+                    }
+                }
             }
             
             is BteloMessage.NewMessage -> {
@@ -173,7 +179,7 @@ class MessageRepositoryImpl @Inject constructor(
                     OutputType.SYSTEM -> DomainOutputType.SYSTEM
                 }
 
-                val metadata = message.metadata?.let { m ->
+                val metadata = message.metadata.let { m ->
                     MessageMetadata(
                         toolId = m.toolId,
                         toolName = m.toolName,
@@ -191,7 +197,8 @@ class MessageRepositoryImpl @Inject constructor(
                 }
 
                 val structuredMessage = Message(
-                    id = "struct-${System.currentTimeMillis()}-${java.util.UUID.randomUUID().toString().take(4)}",
+                    id = message.id?.takeIf { it.isNotBlank() }
+                        ?: stableStructuredMessageId(message),
                     sessionId = sessionId,
                     content = message.content,
                     type = when (message.outputType) {
@@ -238,24 +245,16 @@ class MessageRepositoryImpl @Inject constructor(
 
     override suspend fun sendMessage(sessionId: String, content: String): Result<Unit> {
         return try {
-            // 保存用户消息到数据库
-            val userMessage = Message(
-                id = java.util.UUID.randomUUID().toString(),
-                sessionId = sessionId,
-                content = content,
-                type = MessageType.COMMAND,
-                timestamp = System.currentTimeMillis(),
-                isFromUser = true
-            )
-            safeInsert("UserMessage") { messageDao.insertMessage(userMessage.toEntity()) }
-            
-            // 发送WebSocket消息
-            webSocketFactory.sendMessage(
+            val sent = webSocketFactory.sendMessage(
                 sessionId,
                 BteloMessage.Command(content = content, type = InputType.TEXT)
             )
-            
-            Result.success(Unit)
+
+            if (sent) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException("WebSocket is not connected for session $sessionId"))
+            }
         } catch (e: Exception) {
             Logger.e(tag, "发送消息失败", e)
             Result.failure(e)
@@ -305,6 +304,15 @@ class MessageRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Logger.e(this.tag, "[$tag] Insert failed: ${e.message}", e)
         }
+    }
+
+    private fun stableStructuredMessageId(message: BteloMessage.StructuredOutput): String {
+        val fingerprint = listOf(
+            message.outputType.name,
+            message.timestamp,
+            message.content
+        ).joinToString("|").hashCode()
+        return "struct-$fingerprint"
     }
     
     override fun disconnect(sessionId: String) {
