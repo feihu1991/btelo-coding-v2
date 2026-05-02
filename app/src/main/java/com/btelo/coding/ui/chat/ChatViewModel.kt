@@ -127,7 +127,7 @@ class ChatViewModel @Inject constructor(
             val token = wsToken ?: authToken ?: ""
             if (serverAddress.isNotBlank() && token.isNotBlank()) {
                 messageRepository.connect(serverAddress, token, effectiveId)
-                checkForUpdate(serverAddress)
+                checkForUpdate()
             }
         }
 
@@ -368,13 +368,11 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun checkForUpdate(server: String? = null) {
+    fun checkForUpdate() {
         viewModelScope.launch {
             try {
-                val serverAddress = server?.takeIf { it.isNotBlank() }
-                    ?: authRepository.getServerAddress().firstOrNull().orEmpty()
                 val updateInfo = withContext(Dispatchers.IO) {
-                    appUpdateManager.checkForUpdate(serverAddress)
+                    appUpdateManager.checkForUpdate()
                 }
                 if (updateInfo != null) {
                     _uiState.value = _uiState.value.copy(updateInfo = updateInfo)

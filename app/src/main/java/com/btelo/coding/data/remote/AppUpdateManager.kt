@@ -37,17 +37,6 @@ data class GitHubAsset(
     @SerializedName("content_type") val contentType: String?
 )
 
-data class RelayUpdateResponse(
-    val success: Boolean,
-    @SerializedName("update_available") val updateAvailable: Boolean,
-    @SerializedName("apk_available") val apkAvailable: Boolean = false,
-    @SerializedName("version_code") val versionCode: Int = 0,
-    @SerializedName("version_name") val versionName: String = "",
-    @SerializedName("file_name") val fileName: String? = null,
-    @SerializedName("size_bytes") val sizeBytes: Long = 0L,
-    @SerializedName("download_url") val downloadUrl: String? = null
-)
-
 // Resolved update info for the app
 data class AppUpdateInfo(
     val versionName: String,
@@ -76,51 +65,10 @@ class AppUpdateManager(
     }
 
     /**
-     * Check desktop relay first when a server address is available, then fall back to GitHub Releases.
+     * Check GitHub Releases for updates.
      * Returns AppUpdateInfo if update available, null otherwise
      */
-    suspend fun checkForUpdate(serverAddress: String? = null): AppUpdateInfo? {
-        val relayUpdate = serverAddress
-            ?.takeIf { it.isNotBlank() }
-            ?.let { checkRelayForUpdate(it) }
-        if (relayUpdate != null) return relayUpdate
-
-        return checkGitHubReleaseForUpdate()
-    }
-
-    private fun checkRelayForUpdate(serverAddress: String): AppUpdateInfo? {
-        return try {
-            val baseUrl = serverAddress.trimEnd('/')
-            val request = Request.Builder()
-                .url("$baseUrl/app/latest?current_version_code=${BuildConfig.VERSION_CODE}")
-                .build()
-            val response = okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Logger.w(TAG, "Relay update check failed: ${response.code}")
-                return null
-            }
-
-            val body = response.body?.string() ?: return null
-            val relay = gson.fromJson(body, RelayUpdateResponse::class.java)
-            if (!relay.success || !relay.updateAvailable || !relay.apkAvailable || relay.downloadUrl.isNullOrBlank()) {
-                return null
-            }
-
-            Logger.i(TAG, "Relay update available: ${relay.versionName} (${relay.versionCode})")
-            AppUpdateInfo(
-                versionName = relay.versionName.ifBlank { "build-${relay.versionCode}" },
-                downloadUrl = relay.downloadUrl,
-                sizeBytes = relay.sizeBytes,
-                fileName = relay.fileName ?: "btelo-update.apk",
-                releaseNotes = "Built by desktop relay"
-            )
-        } catch (e: Exception) {
-            Logger.w(TAG, "Failed to check relay update: ${e.message}")
-            null
-        }
-    }
-
-    private fun checkGitHubReleaseForUpdate(): AppUpdateInfo? {
+    suspend fun checkForUpdate(): AppUpdateInfo? {
         return try {
             val url = "$GITHUB_API_URL/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/releases/latest"
             val request = Request.Builder()
