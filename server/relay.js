@@ -410,8 +410,9 @@ app.get('/app/latest', (req, res) => {
   }
 
   const stat = fs.statSync(apkPath);
-  const PORT = process.env.PORT || 8080;
-  const baseUrl = `http://${getLocalIP()}:${PORT}`;
+  const host = req.headers.host || `${getLocalIP()}:${process.env.PORT || 8080}`;
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  const baseUrl = `${proto}://${host}`;
 
   res.json({
     success: true,

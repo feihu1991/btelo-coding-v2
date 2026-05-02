@@ -297,16 +297,16 @@ class TerminalBridge {
   restartSelf() {
     this.restarting = true;
     this.send({ type: 'bridge_control_result', action: 'restart_bridge', success: true, message: 'Restarting claudex bridge' });
-    const child = spawn(process.argv[0], process.argv.slice(1), {
+    const child = spawn(process.execPath, process.argv.slice(1), {
       cwd: process.cwd(),
       env: process.env,
-      detached: true,
+      detached: false,
       stdio: 'inherit',
       windowsHide: true
     });
-    child.unref();
+    child.on('exit', (code) => process.exit(code || 0));
     this.shutdown();
-    setTimeout(() => process.exit(0), 200);
+    process.exit(0);
   }
 
   shutdown() {

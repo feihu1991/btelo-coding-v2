@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const relay = process.env.BTELO_RELAY_SERVER || 'http://localhost:8080';
 const cwd = process.cwd();
 const claudeArgv = process.argv.slice(2);
+let childProcess = null;
 
 function isLocalRelay(url) {
   try {
@@ -53,10 +54,26 @@ async function ensureRelay() {
   return child;
 }
 
+function restartSelf() {
+  process.stderr.write('[claudex] restarting...\n');
+  const child = spawn(process.execPath, [__filename, ...claudeArgv], {
+    cwd,
+    env: process.env,
+    stdio: 'inherit',
+    detached: false,
+    windowsHide: true
+  });
+  child.on('exit', (code) => process.exit(code || 0));
+  if (childProcess) {
+    try { childProcess.kill(); } catch {}
+  }
+  process.exit(0);
+}
+
 async function main() {
   await ensureRelay();
 
-  const child = spawn(process.argv[0], [path.join(__dirname, 'terminal-bridge.js')], {
+  childProcess = spawn(process.argv[0], [path.join(__dirname, 'terminal-bridge.js')], {
     cwd,
     env: {
       ...process.env,
@@ -67,10 +84,13 @@ async function main() {
     stdio: 'inherit'
   });
 
-  child.on('exit', (code, signal) => {
+  childProcess.on('exit', (code, signal) => {
     if (signal) process.kill(process.pid, signal);
     else process.exit(code || 0);
   });
+
+  // restart on SIGUSR1
+  process.on('SIGUSR1', restartSelf);
 }
 
 main().catch((err) => {
