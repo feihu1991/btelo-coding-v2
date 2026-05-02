@@ -5,9 +5,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import com.btelo.coding.domain.model.Message
 
 @Composable
@@ -36,7 +37,8 @@ fun MessageList(
 
     LazyColumn(
         state = listState,
-        modifier = modifier
+        modifier = modifier.padding(horizontal = 18.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 260.dp)
     ) {
         items(messages, key = { it.id }) { message ->
             MessageBubble(message = message)
