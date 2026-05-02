@@ -24,8 +24,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,7 +70,9 @@ fun ChatScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val uriHandler = LocalUriHandler.current
     var showDisconnectDialog by remember { mutableStateOf(false) }
+    var showBridgeMenu by remember { mutableStateOf(false) }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -81,6 +89,19 @@ fun ChatScreen(
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { error ->
             snackbarHostState.showSnackbar("Connection error: $error")
+        }
+    }
+
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let { error ->
+            snackbarHostState.showSnackbar(error)
+        }
+    }
+
+    LaunchedEffect(uiState.controlMessage) {
+        uiState.controlMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.dismissControlMessage()
         }
     }
 
@@ -108,6 +129,43 @@ fun ChatScreen(
         )
     }
 
+    uiState.updateInfo?.let { update ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissUpdatePrompt() },
+            title = { Text("发现新版本", color = TextPrimary) },
+            text = {
+                Column {
+                    Text(
+                        text = "电脑已打包 ${update.versionName}，可以下载到手机更新。",
+                        color = TextSecondary
+                    )
+                    if (update.sizeBytes > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "大小：${update.sizeBytes / 1024 / 1024} MB",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    update.downloadUrl?.let { uriHandler.openUri(it) }
+                    viewModel.dismissUpdatePrompt()
+                }) {
+                    Text("下载更新", color = GreenSuccess)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissUpdatePrompt() }) {
+                    Text("稍后", color = TextSecondary)
+                }
+            },
+            containerColor = AppBackground
+        )
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -129,6 +187,48 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    Box {
+                        IconButton(
+                            onClick = { showBridgeMenu = true },
+                            enabled = uiState.isConnected
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "Bridge actions",
+                                tint = TextSecondary
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showBridgeMenu,
+                            onDismissRequest = { showBridgeMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("打包 APK") },
+                                leadingIcon = { Icon(Icons.Default.Build, contentDescription = null) },
+                                onClick = {
+                                    showBridgeMenu = false
+                                    viewModel.sendBridgeControl("build_apk")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("重启桥接") },
+                                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                                onClick = {
+                                    showBridgeMenu = false
+                                    viewModel.sendBridgeControl("restart_bridge")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("重启中继") },
+                                leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+                                onClick = {
+                                    showBridgeMenu = false
+                                    viewModel.sendBridgeControl("restart_relay")
+                                }
+                            )
+                        }
+                    }
+
                     // Connection status indicator
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

@@ -47,6 +47,13 @@ data class MessageMetadata(
     val toolNames: List<String>? = null
 )
 
+data class BridgeControlActionResult(
+    val action: String,
+    val success: Boolean,
+    val message: String? = null,
+    val exitCode: Int? = null
+)
+
 /**
  * Output type enum for Claude Code structured output
  */

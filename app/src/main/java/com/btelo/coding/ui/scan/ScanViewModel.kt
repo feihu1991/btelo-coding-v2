@@ -2,7 +2,9 @@ package com.btelo.coding.ui.scan
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.btelo.coding.BuildConfig
 import com.btelo.coding.data.local.DataStoreManager
+import com.btelo.coding.data.remote.AppUpdateInfo
 import com.btelo.coding.domain.repository.SessionRepository
 import com.btelo.coding.util.Logger
 import com.google.gson.Gson
@@ -33,7 +35,8 @@ data class ScanUiState(
     val bridges: List<BridgeInfo> = emptyList(),
     val selectedBridgeId: String? = null,
     val sessionId: String? = null,
-    val wsToken: String? = null
+    val wsToken: String? = null,
+    val updateInfo: AppUpdateInfo? = null
 )
 
 data class BridgeInfo(
@@ -124,6 +127,7 @@ class ScanViewModel @Inject constructor(
                             isDiscovering = false,
                             bridges = resp.bridges
                         )
+                        checkForUpdate(server)
                     } else {
                         _uiState.value = _uiState.value.copy(
                             isDiscovering = false,
@@ -148,6 +152,32 @@ class ScanViewModel @Inject constructor(
         discoveryCall?.cancel()
         discoveryCall = null
         _uiState.value = _uiState.value.copy(isDiscovering = false)
+    }
+
+    fun checkForUpdate(server: String = _uiState.value.serverAddress) {
+        if (server.isBlank()) return
+
+        viewModelScope.launch {
+            try {
+                val body = withContext(Dispatchers.IO) {
+                    val request = Request.Builder()
+                        .url("$server/app/latest?current_version_code=${BuildConfig.VERSION_CODE}")
+                        .get()
+                        .build()
+                    okHttpClient.newCall(request).execute().body?.string() ?: ""
+                }
+                val updateInfo = gson.fromJson(body, AppUpdateInfo::class.java)
+                if (updateInfo != null && updateInfo.success && updateInfo.updateAvailable && updateInfo.apkAvailable) {
+                    _uiState.value = _uiState.value.copy(updateInfo = updateInfo)
+                }
+            } catch (e: Exception) {
+                Logger.w("ScanVM", "Update check failed: ${e.message}")
+            }
+        }
+    }
+
+    fun dismissUpdatePrompt() {
+        _uiState.value = _uiState.value.copy(updateInfo = null)
     }
 
     fun connectToBridge(bridgeId: String, authCode: String) {

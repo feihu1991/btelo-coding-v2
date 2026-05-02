@@ -16,6 +16,7 @@ import com.btelo.coding.data.remote.websocket.factory.WebSocketConfig
 import com.btelo.coding.data.remote.websocket.factory.ReconnectConfig
 import com.btelo.coding.data.remote.websocket.factory.WebSocketEvent
 import com.btelo.coding.domain.model.ActiveTurnState
+import com.btelo.coding.domain.model.BridgeControlActionResult
 import com.btelo.coding.domain.model.Message
 import com.btelo.coding.domain.model.MessageMetadata
 import com.btelo.coding.domain.model.MessageType
@@ -62,6 +63,9 @@ class MessageRepositoryImpl @Inject constructor(
 
     private val _activeTurnState = MutableStateFlow(ActiveTurnState.Idle)
     override val activeTurnState: StateFlow<ActiveTurnState> = _activeTurnState.asStateFlow()
+
+    private val _bridgeControlResults = MutableSharedFlow<BridgeControlActionResult>(extraBufferCapacity = 16)
+    override val bridgeControlResults: Flow<BridgeControlActionResult> = _bridgeControlResults.asSharedFlow()
     
     override fun connect(serverAddress: String, token: String, sessionId: String) {
         _currentSessionId.value = sessionId
@@ -235,6 +239,33 @@ class MessageRepositoryImpl @Inject constructor(
                 )
             }
 
+            is BteloMessage.BridgeControlResult -> {
+                val result = BridgeControlActionResult(
+                    action = message.action,
+                    success = message.success,
+                    message = message.message,
+                    exitCode = message.exitCode
+                )
+                _bridgeControlResults.emit(result)
+
+                val statusText = if (message.success) "completed" else "failed"
+                val detail = message.message ?: message.exitCode?.let { "exit code $it" }.orEmpty()
+                val content = listOf("Bridge action ${message.action} $statusText", detail)
+                    .filter { it.isNotBlank() }
+                    .joinToString(": ")
+
+                val systemMessage = Message(
+                    id = "bridge-${message.action}-${System.currentTimeMillis()}",
+                    sessionId = sessionId,
+                    content = content,
+                    type = if (message.success) MessageType.OUTPUT else MessageType.ERROR,
+                    timestamp = System.currentTimeMillis(),
+                    isFromUser = false,
+                    outputType = if (message.success) DomainOutputType.SYSTEM else DomainOutputType.ERROR
+                )
+                safeInsert("BridgeControlResult") { messageDao.insertMessage(systemMessage.toEntity()) }
+            }
+
             // BTELO Coding v2: Structured Output handling
             is BteloMessage.StructuredOutput -> {
                 Logger.d(tag, "收到结构化输出: ${message.outputType}")
@@ -334,6 +365,20 @@ class MessageRepositoryImpl @Inject constructor(
             }
         } catch (e: Exception) {
             Logger.e(tag, "发送消息失败", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun sendBridgeControl(sessionId: String, action: String): Result<Unit> {
+        return try {
+            val sent = webSocketFactory.sendMessage(sessionId, BteloMessage.BridgeControl(action))
+            if (sent) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException("WebSocket is not connected for session $sessionId"))
+            }
+        } catch (e: Exception) {
+            Logger.e(tag, "Bridge control failed", e)
             Result.failure(e)
         }
     }

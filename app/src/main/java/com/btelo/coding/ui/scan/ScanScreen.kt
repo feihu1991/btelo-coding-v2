@@ -32,12 +32,14 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -74,6 +77,7 @@ fun ScanScreen(
     viewModel: ScanViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val uriHandler = LocalUriHandler.current
 
     var showAuthDialog by remember { mutableStateOf(false) }
     var authBridgeId by remember { mutableStateOf("") }
@@ -84,6 +88,43 @@ fun ScanScreen(
         if (uiState.isConnected && uiState.sessionId != null) {
             onConnected(uiState.sessionId!!)
         }
+    }
+
+    uiState.updateInfo?.let { update ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissUpdatePrompt() },
+            title = { Text("发现新版本", color = TextPrimary) },
+            text = {
+                Column {
+                    Text(
+                        text = "当前电脑已打包 ${update.versionName}，可以下载到手机更新。",
+                        color = TextSecondary
+                    )
+                    if (update.sizeBytes > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "大小：${update.sizeBytes / 1024 / 1024} MB",
+                            color = TextTertiary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    update.downloadUrl?.let { uriHandler.openUri(it) }
+                    viewModel.dismissUpdatePrompt()
+                }) {
+                    Text("下载更新", color = BubbleGradientStart)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissUpdatePrompt() }) {
+                    Text("稍后", color = TextSecondary)
+                }
+            },
+            containerColor = CardSurface
+        )
     }
 
     Box(

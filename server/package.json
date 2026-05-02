@@ -3,9 +3,14 @@
   "version": "2.0.0",
   "description": "BTELO Coding relay server + Windows attach bridge for Claude Code terminal sync",
   "main": "relay.js",
+  "bin": {
+    "claudex": "./claudex.js"
+  },
   "scripts": {
     "start": "node relay.js",
     "relay": "node relay.js",
+    "claudex": "node claudex.js",
+    "terminal": "node terminal-bridge.js",
     "bridge": "node bridge-v3.js",
     "bridge:v3": "node bridge-v3.js",
     "bridge:attach": "node bridge-attach.js",

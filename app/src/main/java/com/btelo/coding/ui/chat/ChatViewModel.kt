@@ -2,7 +2,9 @@ package com.btelo.coding.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.btelo.coding.BuildConfig
 import com.btelo.coding.data.local.DataStoreManager
+import com.btelo.coding.data.remote.AppUpdateInfo
 import com.btelo.coding.data.remote.websocket.OutputType
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.domain.model.ActiveTurnState
@@ -14,13 +16,18 @@ import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.domain.repository.SessionRepository
 import com.btelo.coding.util.Logger
+import com.google.gson.Gson
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import javax.inject.Inject
 
 data class ThinkingMessage(
@@ -60,7 +67,9 @@ data class ChatUiState(
     val sessionName: String = "Claude Code",
     val selectedImageUri: String = "",
     val thinkingSession: ThinkingSession = ThinkingSession(),
-    val structuredOutputBuffer: StructuredOutputBuffer = StructuredOutputBuffer()
+    val structuredOutputBuffer: StructuredOutputBuffer = StructuredOutputBuffer(),
+    val controlMessage: String? = null,
+    val updateInfo: AppUpdateInfo? = null
 )
 
 data class StructuredOutputBuffer(
@@ -80,7 +89,9 @@ class ChatViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
     private val sessionRepository: SessionRepository,
     private val authRepository: AuthRepository,
-    private val dataStoreManager: DataStoreManager
+    private val dataStoreManager: DataStoreManager,
+    private val okHttpClient: OkHttpClient,
+    private val gson: Gson
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -114,6 +125,7 @@ class ChatViewModel @Inject constructor(
             val token = wsToken ?: authToken ?: ""
             if (serverAddress.isNotBlank() && token.isNotBlank()) {
                 messageRepository.connect(serverAddress, token, effectiveId)
+                checkForUpdate(serverAddress)
             }
         }
 
@@ -122,6 +134,7 @@ class ChatViewModel @Inject constructor(
         observeSession()
         observeStructuredOutput()
         observeActiveTurn()
+        observeBridgeControlResults()
     }
 
     private fun observeMessages() {
@@ -209,6 +222,21 @@ class ChatViewModel @Inject constructor(
                         streamingContent = "",
                         thinkingSession = ThinkingSession()
                     )
+                }
+            }
+        }
+    }
+
+    private fun observeBridgeControlResults() {
+        coroutineJobs += viewModelScope.launch {
+            messageRepository.bridgeControlResults.collect { result ->
+                _uiState.value = _uiState.value.copy(
+                    controlMessage = result.displayMessage(),
+                    isLoading = if (result.action == "build_apk") false else _uiState.value.isLoading
+                )
+
+                if (result.action == "build_apk" && result.success) {
+                    checkForUpdate()
                 }
             }
         }
@@ -312,6 +340,83 @@ class ChatViewModel @Inject constructor(
                         error = exception.message
                     )
                 }
+        }
+    }
+
+    fun sendBridgeControl(action: String) {
+        if (sessionId.isBlank()) return
+
+        _uiState.value = _uiState.value.copy(
+            controlMessage = null,
+            error = null,
+            isLoading = action == "build_apk" || _uiState.value.isLoading
+        )
+
+        viewModelScope.launch {
+            messageRepository.sendBridgeControl(sessionId, action)
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(controlMessage = action.sentMessage())
+                }
+                .onFailure { exception ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        controlMessage = exception.message ?: "Bridge control failed"
+                    )
+                }
+        }
+    }
+
+    fun checkForUpdate(server: String? = null) {
+        viewModelScope.launch {
+            val targetServer = server?.takeIf { it.isNotBlank() }
+                ?: authRepository.getServerAddress().firstOrNull().orEmpty()
+            if (targetServer.isBlank()) return@launch
+
+            try {
+                val body = withContext(Dispatchers.IO) {
+                    val request = Request.Builder()
+                        .url("$targetServer/app/latest?current_version_code=${BuildConfig.VERSION_CODE}")
+                        .get()
+                        .build()
+                    okHttpClient.newCall(request).execute().body?.string() ?: ""
+                }
+                val updateInfo = gson.fromJson(body, AppUpdateInfo::class.java)
+                if (updateInfo != null && updateInfo.success && updateInfo.updateAvailable && updateInfo.apkAvailable) {
+                    _uiState.value = _uiState.value.copy(updateInfo = updateInfo)
+                }
+            } catch (e: Exception) {
+                Logger.w("ChatVM", "Update check failed: ${e.message}")
+            }
+        }
+    }
+
+    fun dismissUpdatePrompt() {
+        _uiState.value = _uiState.value.copy(updateInfo = null)
+    }
+
+    fun dismissControlMessage() {
+        _uiState.value = _uiState.value.copy(controlMessage = null)
+    }
+
+    private fun com.btelo.coding.domain.model.BridgeControlActionResult.displayMessage(): String {
+        val label = action.actionLabel()
+        return if (success) {
+            "$label 完成"
+        } else {
+            "$label 失败${message?.let { ": $it" } ?: exitCode?.let { ": exit $it" }.orEmpty()}"
+        }
+    }
+
+    private fun String.sentMessage(): String {
+        return "${actionLabel()} 已发送"
+    }
+
+    private fun String.actionLabel(): String {
+        return when (this) {
+            "build_apk" -> "打包 APK"
+            "restart_bridge" -> "重启桥接"
+            "restart_relay" -> "重启中继"
+            else -> this
         }
     }
 

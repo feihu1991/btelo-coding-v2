@@ -329,4 +329,44 @@ class MessageProtocolTest {
         assertEquals("terminal", message.events.single().metadata.terminality)
         assertEquals("abc123", message.events.single().metadata.fingerprint)
     }
+
+    @Test
+    fun `roundtrip terminal frame should preserve raw terminal payload`() {
+        val original = BteloMessage.TerminalFrame(
+            encoding = "base64",
+            stream = "stdout",
+            data = "SGVsbG8=",
+            timestamp = 1710000000000
+        )
+
+        val restored = protocol.deserialize(protocol.serialize(original))
+
+        assertNotNull(restored)
+        assertTrue(restored is BteloMessage.TerminalFrame)
+        val frame = restored as BteloMessage.TerminalFrame
+        assertEquals("base64", frame.encoding)
+        assertEquals("stdout", frame.stream)
+        assertEquals("SGVsbG8=", frame.data)
+        assertEquals(1710000000000L, frame.timestamp)
+    }
+
+    @Test
+    fun `roundtrip bridge control result should preserve action status`() {
+        val original = BteloMessage.BridgeControlResult(
+            action = "build_apk",
+            success = true,
+            message = "done",
+            exitCode = 0
+        )
+
+        val restored = protocol.deserialize(protocol.serialize(original))
+
+        assertNotNull(restored)
+        assertTrue(restored is BteloMessage.BridgeControlResult)
+        val result = restored as BteloMessage.BridgeControlResult
+        assertEquals("build_apk", result.action)
+        assertTrue(result.success)
+        assertEquals("done", result.message)
+        assertEquals(0, result.exitCode)
+    }
 }

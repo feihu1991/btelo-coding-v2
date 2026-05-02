@@ -101,6 +101,30 @@ sealed class BteloMessage {
         val activeTurn: ActiveTurn
     ) : BteloMessage()
 
+    data class TerminalFrame(
+        val encoding: String,
+        val stream: String,
+        val data: String,
+        val timestamp: Long = 0L
+    ) : BteloMessage()
+
+    data class TerminalExit(
+        val exitCode: Int?,
+        val signal: String?,
+        val timestamp: Long = 0L
+    ) : BteloMessage()
+
+    data class BridgeControl(
+        val action: String
+    ) : BteloMessage()
+
+    data class BridgeControlResult(
+        val action: String,
+        val success: Boolean,
+        val message: String? = null,
+        val exitCode: Int? = null
+    ) : BteloMessage()
+
     data class InputStatus(
         val clientMessageId: String?,
         val status: String,
@@ -325,6 +349,30 @@ class MessageProtocol(private val gson: Gson) {
                 json.addProperty("cursor", message.cursor)
                 json.add("active_turn", gson.toJsonTree(message.activeTurn))
             }
+            is BteloMessage.TerminalFrame -> {
+                json.addProperty("type", "terminal_frame")
+                json.addProperty("encoding", message.encoding)
+                json.addProperty("stream", message.stream)
+                json.addProperty("data", message.data)
+                json.addProperty("timestamp", message.timestamp)
+            }
+            is BteloMessage.TerminalExit -> {
+                json.addProperty("type", "terminal_exit")
+                message.exitCode?.let { json.addProperty("exit_code", it) }
+                message.signal?.let { json.addProperty("signal", it) }
+                json.addProperty("timestamp", message.timestamp)
+            }
+            is BteloMessage.BridgeControl -> {
+                json.addProperty("type", "bridge_control")
+                json.addProperty("action", message.action)
+            }
+            is BteloMessage.BridgeControlResult -> {
+                json.addProperty("type", "bridge_control_result")
+                json.addProperty("action", message.action)
+                json.addProperty("success", message.success)
+                message.message?.let { json.addProperty("message", it) }
+                message.exitCode?.let { json.addProperty("exit_code", it) }
+            }
             is BteloMessage.InputStatus -> {
                 json.addProperty("type", "input_status")
                 json.addProperty("client_message_id", message.clientMessageId)
@@ -487,6 +535,26 @@ class MessageProtocol(private val gson: Gson) {
                         activeTurn = parseActiveTurn(jsonObject.getAsJsonObject("active_turn"))
                     )
                 }
+                "terminal_frame" -> BteloMessage.TerminalFrame(
+                    encoding = optionalString(jsonObject, "encoding") ?: "utf-8",
+                    stream = optionalString(jsonObject, "stream") ?: "stdout",
+                    data = optionalString(jsonObject, "data") ?: "",
+                    timestamp = jsonObject.get("timestamp")?.asLong ?: 0L
+                )
+                "terminal_exit" -> BteloMessage.TerminalExit(
+                    exitCode = jsonObject.get("exit_code")?.asInt,
+                    signal = optionalString(jsonObject, "signal"),
+                    timestamp = jsonObject.get("timestamp")?.asLong ?: 0L
+                )
+                "bridge_control" -> BteloMessage.BridgeControl(
+                    action = optionalString(jsonObject, "action") ?: ""
+                )
+                "bridge_control_result" -> BteloMessage.BridgeControlResult(
+                    action = optionalString(jsonObject, "action") ?: "",
+                    success = jsonObject.get("success")?.asBoolean ?: false,
+                    message = optionalString(jsonObject, "message"),
+                    exitCode = jsonObject.get("exit_code")?.asInt
+                )
                 "input_status" -> BteloMessage.InputStatus(
                     clientMessageId = optionalString(jsonObject, "client_message_id")
                         ?: optionalString(jsonObject, "clientMessageId"),

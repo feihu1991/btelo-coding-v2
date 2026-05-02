@@ -40,6 +40,9 @@ const HEARTBEAT_TIMEOUT = 60000;   // 60 seconds (2x interval)
 const SESSION_CLEANUP_INTERVAL = 60000;  // 60 seconds
 const SESSION_MAX_AGE = 5 * 60 * 1000;  // 5 minutes
 
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const APK_SEARCH_ROOT = process.env.BTELO_APK_DIR || path.join(PROJECT_ROOT, 'app', 'build', 'outputs', 'apk');
+
 // ============================================================
 // IP detection
 // ============================================================
@@ -109,11 +112,53 @@ function forwardMessage(targetWs, senderWs, rawMessage, messageType) {
   return false;
 }
 
+function readAndroidVersion() {
+  const gradlePath = path.join(PROJECT_ROOT, 'app', 'build.gradle.kts');
+  try {
+    const text = fs.readFileSync(gradlePath, 'utf-8');
+    const codeMatch = text.match(/versionCode\s*=\s*(\d+)/);
+    const nameMatch = text.match(/versionName\s*=\s*"([^"]+)"/);
+    return {
+      versionCode: codeMatch ? Number(codeMatch[1]) : 0,
+      versionName: nameMatch ? nameMatch[1] : 'unknown'
+    };
+  } catch {
+    return { versionCode: 0, versionName: 'unknown' };
+  }
+}
+
+function walkFiles(root) {
+  if (!fs.existsSync(root)) return [];
+  const found = [];
+  for (const item of fs.readdirSync(root, { withFileTypes: true })) {
+    const fullPath = path.join(root, item.name);
+    if (item.isDirectory()) found.push(...walkFiles(fullPath));
+    else found.push(fullPath);
+  }
+  return found;
+}
+
+function findLatestApk() {
+  const explicit = process.env.BTELO_APK_PATH;
+  if (explicit && fs.existsSync(explicit)) return explicit;
+  const apks = walkFiles(APK_SEARCH_ROOT)
+    .filter((file) => file.toLowerCase().endsWith('.apk'))
+    .map((file) => ({ file, stat: fs.statSync(file) }))
+    .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+  return apks.length ? apks[0].file : null;
+}
+
+function sha256File(filePath) {
+  const hash = crypto.createHash('sha256');
+  hash.update(fs.readFileSync(filePath));
+  return hash.digest('hex');
+}
+
 // ============================================================
 // API: Bridge registers itself
 // ============================================================
 app.post('/bridge/register', (req, res) => {
-  const { device_name, work_dir, mode, auth_code } = req.body;
+  const { device_name, work_dir, mode, auth_code, command } = req.body;
 
   if (!auth_code || auth_code.length !== 6) {
     return res.status(400).json({ error: 'auth_code (6 digits) required' });
@@ -134,7 +179,8 @@ app.post('/bridge/register', (req, res) => {
     bridgeInfo: {
       device_name: device_name || 'unknown',
       work_dir: work_dir || process.cwd(),
-      mode: mode || 'resume'
+      mode: mode || 'resume',
+      command: command || null
     },
     mobileHeartbeat: null,
     bridgeHeartbeat: Date.now()
@@ -343,6 +389,48 @@ app.get('/status', (req, res) => {
     uptime: process.uptime(),
     version: '2.0.0'
   });
+});
+
+// ============================================================
+// API: Android APK update/distribution
+// ============================================================
+app.get('/app/latest', (req, res) => {
+  const apkPath = findLatestApk();
+  const version = readAndroidVersion();
+  const currentVersionCode = Number(req.query.current_version_code || 0);
+
+  if (!apkPath) {
+    return res.json({
+      success: true,
+      update_available: false,
+      version_code: version.versionCode,
+      version_name: version.versionName,
+      apk_available: false
+    });
+  }
+
+  const stat = fs.statSync(apkPath);
+  const PORT = process.env.PORT || 8080;
+  const baseUrl = `http://${getLocalIP()}:${PORT}`;
+
+  res.json({
+    success: true,
+    update_available: version.versionCode > currentVersionCode,
+    apk_available: true,
+    version_code: version.versionCode,
+    version_name: version.versionName,
+    file_name: path.basename(apkPath),
+    size_bytes: stat.size,
+    sha256: sha256File(apkPath),
+    built_at: new Date(stat.mtimeMs).toISOString(),
+    download_url: `${baseUrl}/app/apk`
+  });
+});
+
+app.get('/app/apk', (req, res) => {
+  const apkPath = findLatestApk();
+  if (!apkPath) return res.status(404).json({ error: 'APK not found. Build the app first.' });
+  res.download(apkPath, path.basename(apkPath));
 });
 
 // ============================================================
