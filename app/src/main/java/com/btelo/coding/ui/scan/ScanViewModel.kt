@@ -182,8 +182,9 @@ class ScanViewModel @Inject constructor(
                     return@launch
                 }
 
+                val server = _uiState.value.serverAddress.takeIf { it.isNotBlank() }
                 val updateInfo = withContext(Dispatchers.IO) {
-                    appUpdateManager.checkForUpdate()
+                    appUpdateManager.checkForUpdate(server)
                 }
 
                 // Save check timestamp

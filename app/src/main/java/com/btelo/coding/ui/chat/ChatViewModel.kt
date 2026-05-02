@@ -371,8 +371,10 @@ class ChatViewModel @Inject constructor(
     fun checkForUpdate(server: String? = null) {
         viewModelScope.launch {
             try {
+                val serverAddress = server?.takeIf { it.isNotBlank() }
+                    ?: authRepository.getServerAddress().firstOrNull().orEmpty()
                 val updateInfo = withContext(Dispatchers.IO) {
-                    appUpdateManager.checkForUpdate()
+                    appUpdateManager.checkForUpdate(serverAddress)
                 }
                 if (updateInfo != null) {
                     _uiState.value = _uiState.value.copy(updateInfo = updateInfo)
