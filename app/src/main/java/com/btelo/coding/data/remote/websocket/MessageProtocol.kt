@@ -5,6 +5,7 @@ import com.btelo.coding.util.Logger
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonSyntaxException
+import com.google.gson.reflect.TypeToken
 
 /**
  * Structured Output Type Enum for BTELO Coding v2
@@ -43,7 +44,11 @@ enum class HookEventType {
 }
 
 sealed class BteloMessage {
-    data class Command(val content: String, val type: InputType) : BteloMessage()
+    data class Command(
+        val content: String,
+        val type: InputType,
+        val clientMessageId: String? = null
+    ) : BteloMessage()
     data class Output(val data: String, val stream: StreamType) : BteloMessage()
     data class Status(val connected: Boolean) : BteloMessage()
     data class PublicKey(val key: String) : BteloMessage()
@@ -72,6 +77,38 @@ sealed class BteloMessage {
     data class NewMessage(
         val sessionId: String,
         val message: HistoryMessage
+    ) : BteloMessage()
+
+    data class TranscriptSnapshot(
+        val sessionId: String,
+        val claudeSessionId: String,
+        val cursor: Int,
+        val events: List<TranscriptEvent>
+    ) : BteloMessage()
+
+    data class TranscriptDelta(
+        val sessionId: String,
+        val claudeSessionId: String,
+        val cursor: Int,
+        val events: List<TranscriptEvent>
+    ) : BteloMessage()
+
+    data class InputStatus(
+        val clientMessageId: String?,
+        val status: String,
+        val message: String? = null,
+        val transcriptEventId: String? = null,
+        val inputMode: String? = null,
+        val timestamp: Long = 0L
+    ) : BteloMessage()
+
+    data class BridgeStatus(
+        val sessionId: String,
+        val claudeSessionId: String,
+        val connected: Boolean,
+        val mode: String? = null,
+        val inputMode: String? = null,
+        val message: String? = null
     ) : BteloMessage()
     
     data class SelectSession(
@@ -155,6 +192,16 @@ data class HistoryMessage(
     val timestamp: Long
 )
 
+data class TranscriptEvent(
+    val id: String,
+    val seq: Int,
+    val role: String,
+    val kind: String,
+    val content: String,
+    val timestamp: Long,
+    val metadata: OutputMetadata = OutputMetadata()
+)
+
 enum class InputType {
     TEXT, VOICE, IMAGE
 }
@@ -173,6 +220,9 @@ class MessageProtocol(private val gson: Gson) {
                 json.addProperty("type", "command")
                 json.addProperty("content", message.content)
                 json.addProperty("inputType", message.type.name)
+                message.clientMessageId?.takeIf { it.isNotBlank() }?.let {
+                    json.addProperty("client_message_id", it)
+                }
             }
             is BteloMessage.Output -> {
                 json.addProperty("type", "output")
@@ -209,6 +259,40 @@ class MessageProtocol(private val gson: Gson) {
                 json.addProperty("type", "new_message")
                 json.addProperty("session_id", message.sessionId)
                 json.add("message", gson.toJsonTree(message.message))
+            }
+            is BteloMessage.TranscriptSnapshot -> {
+                json.addProperty("type", "transcript_snapshot")
+                json.addProperty("version", 3)
+                json.addProperty("session_id", message.sessionId)
+                json.addProperty("claude_session_id", message.claudeSessionId)
+                json.addProperty("cursor", message.cursor)
+                json.add("events", gson.toJsonTree(message.events))
+            }
+            is BteloMessage.TranscriptDelta -> {
+                json.addProperty("type", "transcript_delta")
+                json.addProperty("version", 3)
+                json.addProperty("session_id", message.sessionId)
+                json.addProperty("claude_session_id", message.claudeSessionId)
+                json.addProperty("cursor", message.cursor)
+                json.add("events", gson.toJsonTree(message.events))
+            }
+            is BteloMessage.InputStatus -> {
+                json.addProperty("type", "input_status")
+                json.addProperty("client_message_id", message.clientMessageId)
+                json.addProperty("status", message.status)
+                message.message?.let { json.addProperty("message", it) }
+                message.transcriptEventId?.let { json.addProperty("transcript_event_id", it) }
+                message.inputMode?.let { json.addProperty("input_mode", it) }
+                json.addProperty("timestamp", message.timestamp)
+            }
+            is BteloMessage.BridgeStatus -> {
+                json.addProperty("type", "bridge_status")
+                json.addProperty("session_id", message.sessionId)
+                json.addProperty("claude_session_id", message.claudeSessionId)
+                json.addProperty("connected", message.connected)
+                message.mode?.let { json.addProperty("mode", it) }
+                message.inputMode?.let { json.addProperty("input_mode", it) }
+                message.message?.let { json.addProperty("message", it) }
             }
             is BteloMessage.SelectSession -> {
                 json.addProperty("type", "select_session")
@@ -266,7 +350,9 @@ class MessageProtocol(private val gson: Gson) {
                         content = content,
                         type = InputType.valueOf(
                             optionalString(jsonObject, "inputType")?.uppercase() ?: "TEXT"
-                        )
+                        ),
+                        clientMessageId = optionalString(jsonObject, "client_message_id")
+                            ?: optionalString(jsonObject, "clientMessageId")
                     )
                 }
                 "output" -> BteloMessage.Output(
@@ -327,6 +413,41 @@ class MessageProtocol(private val gson: Gson) {
                         message = historyMsg
                     )
                 }
+                "transcript_snapshot" -> {
+                    BteloMessage.TranscriptSnapshot(
+                        sessionId = optionalString(jsonObject, "session_id") ?: "",
+                        claudeSessionId = optionalString(jsonObject, "claude_session_id") ?: "",
+                        cursor = jsonObject.get("cursor")?.asInt ?: 0,
+                        events = parseTranscriptEvents(jsonObject)
+                    )
+                }
+                "transcript_delta" -> {
+                    BteloMessage.TranscriptDelta(
+                        sessionId = optionalString(jsonObject, "session_id") ?: "",
+                        claudeSessionId = optionalString(jsonObject, "claude_session_id") ?: "",
+                        cursor = jsonObject.get("cursor")?.asInt ?: 0,
+                        events = parseTranscriptEvents(jsonObject)
+                    )
+                }
+                "input_status" -> BteloMessage.InputStatus(
+                    clientMessageId = optionalString(jsonObject, "client_message_id")
+                        ?: optionalString(jsonObject, "clientMessageId"),
+                    status = optionalString(jsonObject, "status") ?: "",
+                    message = optionalString(jsonObject, "message"),
+                    transcriptEventId = optionalString(jsonObject, "transcript_event_id")
+                        ?: optionalString(jsonObject, "transcriptEventId"),
+                    inputMode = optionalString(jsonObject, "input_mode")
+                        ?: optionalString(jsonObject, "inputMode"),
+                    timestamp = jsonObject.get("timestamp")?.asLong ?: 0L
+                )
+                "bridge_status" -> BteloMessage.BridgeStatus(
+                    sessionId = optionalString(jsonObject, "session_id") ?: "",
+                    claudeSessionId = optionalString(jsonObject, "claude_session_id") ?: "",
+                    connected = jsonObject.get("connected")?.asBoolean ?: false,
+                    mode = optionalString(jsonObject, "mode"),
+                    inputMode = optionalString(jsonObject, "input_mode"),
+                    message = optionalString(jsonObject, "message")
+                )
                 "select_session" -> BteloMessage.SelectSession(
                     sessionId = jsonObject.get("session_id")?.asString ?: ""
                 )
@@ -341,25 +462,7 @@ class MessageProtocol(private val gson: Gson) {
                     }
                     
                     val metadataObj = jsonObject.getAsJsonObject("metadata")
-                    val metadata = if (metadataObj != null) {
-                        OutputMetadata(
-                            toolId = metadataObj.get("toolId")?.asString,
-                            toolName = metadataObj.get("toolName")?.asString,
-                            toolType = metadataObj.get("toolType")?.asString,
-                            filePath = metadataObj.get("filePath")?.asString,
-                            command = metadataObj.get("command")?.asString,
-                            isFileOp = metadataObj.get("isFileOp")?.asBoolean ?: false,
-                            fileOpType = metadataObj.get("fileOpType")?.asString,
-                            isToolResult = metadataObj.get("isToolResult")?.asBoolean ?: false,
-                            isCollapsed = metadataObj.get("isCollapsed")?.asBoolean ?: false,
-                            originalLength = metadataObj.get("originalLength")?.asInt ?: 0,
-                            errorCode = metadataObj.get("code")?.asString,
-                            errorDetails = metadataObj.get("details")?.asString,
-                            parserVersion = metadataObj.get("parserVersion")?.asString ?: "1.0.0"
-                        )
-                    } else {
-                        OutputMetadata()
-                    }
+                    val metadata = parseOutputMetadata(metadataObj)
                     
                     BteloMessage.StructuredOutput(
                         outputType = outputType,
@@ -429,5 +532,50 @@ class MessageProtocol(private val gson: Gson) {
         val element = jsonObject.get(field) ?: return null
         if (element.isJsonNull) return null
         return element.asString
+    }
+
+    private fun parseTranscriptEvents(jsonObject: JsonObject): List<TranscriptEvent> {
+        val eventsArray = jsonObject.getAsJsonArray("events") ?: return emptyList()
+        return eventsArray.mapNotNull { element ->
+            if (!element.isJsonObject) return@mapNotNull null
+            val obj = element.asJsonObject
+            val id = optionalString(obj, "id") ?: return@mapNotNull null
+            TranscriptEvent(
+                id = id,
+                seq = obj.get("seq")?.asInt ?: 0,
+                role = optionalString(obj, "role") ?: "",
+                kind = optionalString(obj, "kind") ?: "text",
+                content = optionalString(obj, "content") ?: "",
+                timestamp = obj.get("timestamp")?.asLong ?: 0L,
+                metadata = parseOutputMetadata(
+                    obj.get("metadata")?.takeIf { it.isJsonObject }?.asJsonObject
+                )
+            )
+        }
+    }
+
+    private fun parseOutputMetadata(metadataObj: JsonObject?): OutputMetadata {
+        if (metadataObj == null) return OutputMetadata()
+        return OutputMetadata(
+            toolId = optionalString(metadataObj, "toolId"),
+            toolName = optionalString(metadataObj, "toolName"),
+            toolType = optionalString(metadataObj, "toolType"),
+            filePath = optionalString(metadataObj, "filePath"),
+            command = optionalString(metadataObj, "command"),
+            parameters = metadataObj.get("parameters")?.let { element ->
+                if (element.isJsonObject) {
+                    val type = object : TypeToken<Map<String, Any>>() {}.type
+                    gson.fromJson<Map<String, Any>>(element, type)
+                } else null
+            },
+            isFileOp = metadataObj.get("isFileOp")?.asBoolean ?: false,
+            fileOpType = optionalString(metadataObj, "fileOpType"),
+            isToolResult = metadataObj.get("isToolResult")?.asBoolean ?: false,
+            isCollapsed = metadataObj.get("isCollapsed")?.asBoolean ?: false,
+            originalLength = metadataObj.get("originalLength")?.asInt ?: 0,
+            errorCode = optionalString(metadataObj, "errorCode") ?: optionalString(metadataObj, "code"),
+            errorDetails = optionalString(metadataObj, "errorDetails") ?: optionalString(metadataObj, "details"),
+            parserVersion = optionalString(metadataObj, "parserVersion") ?: "1.0.0"
+        )
     }
 }

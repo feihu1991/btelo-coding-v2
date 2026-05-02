@@ -8,6 +8,8 @@ import com.btelo.coding.data.local.entity.MessageEntity
 import com.btelo.coding.data.remote.websocket.BteloMessage
 import com.btelo.coding.data.remote.websocket.InputType
 import com.btelo.coding.data.remote.websocket.OutputType
+import com.btelo.coding.data.remote.websocket.OutputMetadata
+import com.btelo.coding.data.remote.websocket.TranscriptEvent
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.data.remote.websocket.factory.WebSocketClientFactory
 import com.btelo.coding.data.remote.websocket.factory.WebSocketConfig
@@ -166,6 +168,61 @@ class MessageRepositoryImpl @Inject constructor(
                 safeInsert("NewMessage") { messageDao.insertMessage(entity) }
             }
 
+            is BteloMessage.TranscriptSnapshot -> {
+                val effectiveSessionId = message.sessionId.ifBlank { sessionId }
+                val transcriptMessages = message.events.map { event ->
+                    event.toDomainMessage(effectiveSessionId)
+                }
+
+                Logger.i(
+                    tag,
+                    "Received transcript snapshot: ${message.events.size} events, cursor=${message.cursor}"
+                )
+
+                safeInsert("TranscriptSnapshot") {
+                    messageDao.deleteMessagesBySessionId(effectiveSessionId)
+                    if (transcriptMessages.isNotEmpty()) {
+                        messageDao.insertMessages(transcriptMessages.map { it.toEntity() })
+                    }
+                }
+            }
+
+            is BteloMessage.TranscriptDelta -> {
+                val effectiveSessionId = message.sessionId.ifBlank { sessionId }
+                val transcriptMessages = message.events.map { event ->
+                    event.toDomainMessage(effectiveSessionId)
+                }
+
+                Logger.d(
+                    tag,
+                    "Received transcript delta: ${message.events.size} events, cursor=${message.cursor}"
+                )
+
+                if (transcriptMessages.isNotEmpty()) {
+                    safeInsert("TranscriptDelta") {
+                        messageDao.insertMessages(transcriptMessages.map { it.toEntity() })
+                    }
+                    transcriptMessages
+                        .filter { !it.isFromUser && it.outputType != null }
+                        .forEach { _structuredOutputFlow.emit(it) }
+                }
+            }
+
+            is BteloMessage.InputStatus -> {
+                if (message.status == "failed") {
+                    Logger.w(tag, "Input failed: ${message.message ?: message.clientMessageId.orEmpty()}")
+                } else {
+                    Logger.d(tag, "Input status: ${message.status} (${message.clientMessageId})")
+                }
+            }
+
+            is BteloMessage.BridgeStatus -> {
+                Logger.i(
+                    tag,
+                    "Bridge status: connected=${message.connected}, mode=${message.mode}, input=${message.inputMode}"
+                )
+            }
+
             // BTELO Coding v2: Structured Output handling
             is BteloMessage.StructuredOutput -> {
                 Logger.d(tag, "收到结构化输出: ${message.outputType}")
@@ -245,9 +302,14 @@ class MessageRepositoryImpl @Inject constructor(
 
     override suspend fun sendMessage(sessionId: String, content: String): Result<Unit> {
         return try {
+            val clientMessageId = "phone-${System.currentTimeMillis()}-${java.util.UUID.randomUUID()}"
             val sent = webSocketFactory.sendMessage(
                 sessionId,
-                BteloMessage.Command(content = content, type = InputType.TEXT)
+                BteloMessage.Command(
+                    content = content,
+                    type = InputType.TEXT,
+                    clientMessageId = clientMessageId
+                )
             )
 
             if (sent) {
@@ -313,6 +375,58 @@ class MessageRepositoryImpl @Inject constructor(
             message.content
         ).joinToString("|").hashCode()
         return "struct-$fingerprint"
+    }
+
+    private fun TranscriptEvent.toDomainMessage(effectiveSessionId: String): Message {
+        val normalizedRole = role.lowercase()
+        val normalizedKind = kind.lowercase()
+        val domainOutputType = when (normalizedKind) {
+            "tool_call" -> DomainOutputType.TOOL_CALL
+            "file_op" -> DomainOutputType.FILE_OP
+            "thinking" -> DomainOutputType.THINKING
+            "error" -> DomainOutputType.ERROR
+            "system" -> DomainOutputType.SYSTEM
+            else -> if (normalizedRole == "assistant") DomainOutputType.CLAUDE_RESPONSE else null
+        }
+
+        val messageType = when {
+            normalizedRole == "user" -> MessageType.COMMAND
+            normalizedKind == "error" -> MessageType.ERROR
+            normalizedKind == "tool_call" -> MessageType.TOOL
+            normalizedKind == "file_op" -> MessageType.TOOL
+            normalizedKind == "thinking" -> MessageType.THINKING
+            else -> MessageType.OUTPUT
+        }
+
+        return Message(
+            id = id,
+            sessionId = effectiveSessionId,
+            content = content,
+            type = messageType,
+            timestamp = timestamp.takeIf { it > 0 } ?: System.currentTimeMillis(),
+            isFromUser = normalizedRole == "user",
+            outputType = domainOutputType,
+            metadata = metadata.toDomainMetadata(),
+            thinkingContent = if (normalizedKind == "thinking") content else null
+        )
+    }
+
+    private fun OutputMetadata.toDomainMetadata(): MessageMetadata {
+        return MessageMetadata(
+            toolId = toolId,
+            toolName = toolName,
+            toolType = toolType,
+            filePath = filePath,
+            command = command,
+            parameters = parameters,
+            isFileOp = isFileOp,
+            fileOpType = fileOpType,
+            isToolResult = isToolResult,
+            isCollapsed = isCollapsed,
+            originalLength = originalLength,
+            errorCode = errorCode,
+            errorDetails = errorDetails
+        )
     }
     
     override fun disconnect(sessionId: String) {

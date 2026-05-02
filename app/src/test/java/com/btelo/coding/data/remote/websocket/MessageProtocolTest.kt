@@ -4,6 +4,7 @@ import com.btelo.coding.data.remote.websocket.BteloMessage
 import com.btelo.coding.data.remote.websocket.InputType
 import com.btelo.coding.data.remote.websocket.MessageProtocol
 import com.btelo.coding.data.remote.websocket.StreamType
+import com.btelo.coding.data.remote.websocket.TranscriptEvent
 import com.google.gson.Gson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -23,12 +24,13 @@ class MessageProtocolTest {
 
     @Test
     fun `serialize Command message should produce valid JSON`() {
-        val message = BteloMessage.Command("ls -la", InputType.TEXT)
+        val message = BteloMessage.Command("ls -la", InputType.TEXT, "phone-1")
         val json = protocol.serialize(message)
         
         assertTrue(json.contains("\"type\":\"command\""))
         assertTrue(json.contains("\"content\":\"ls -la\""))
         assertTrue(json.contains("\"inputType\":\"TEXT\""))
+        assertTrue(json.contains("\"client_message_id\":\"phone-1\""))
     }
 
     @Test
@@ -155,5 +157,85 @@ class MessageProtocolTest {
         val restoredCommand = restored as BteloMessage.Command
         assertEquals(original.content, restoredCommand.content)
         assertEquals(original.type, restoredCommand.type)
+    }
+
+    @Test
+    fun `deserialize transcript snapshot should parse stable canonical events`() {
+        val json = """
+            {
+              "type": "transcript_snapshot",
+              "version": 3,
+              "session_id": "relay-1",
+              "claude_session_id": "claude-1",
+              "cursor": 2,
+              "events": [
+                {
+                  "id": "u-1",
+                  "seq": 1,
+                  "role": "user",
+                  "kind": "text",
+                  "content": "fix tests",
+                  "timestamp": 1710000000000,
+                  "metadata": {}
+                },
+                {
+                  "id": "a-1-0",
+                  "seq": 2,
+                  "role": "assistant",
+                  "kind": "tool_call",
+                  "content": "npm test",
+                  "timestamp": 1710000001000,
+                  "metadata": {
+                    "toolId": "toolu_1",
+                    "toolName": "Bash",
+                    "command": "npm test",
+                    "isCollapsed": true
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val message = protocol.deserialize(json)
+
+        assertNotNull(message)
+        assertTrue(message is BteloMessage.TranscriptSnapshot)
+        val snapshot = message as BteloMessage.TranscriptSnapshot
+        assertEquals("relay-1", snapshot.sessionId)
+        assertEquals("claude-1", snapshot.claudeSessionId)
+        assertEquals(2, snapshot.cursor)
+        assertEquals(2, snapshot.events.size)
+        assertEquals("u-1", snapshot.events[0].id)
+        assertEquals("tool_call", snapshot.events[1].kind)
+        assertEquals("Bash", snapshot.events[1].metadata.toolName)
+        assertEquals("npm test", snapshot.events[1].metadata.command)
+    }
+
+    @Test
+    fun `roundtrip transcript delta should preserve events`() {
+        val original = BteloMessage.TranscriptDelta(
+            sessionId = "relay-1",
+            claudeSessionId = "claude-1",
+            cursor = 5,
+            events = listOf(
+                TranscriptEvent(
+                    id = "a-5-0",
+                    seq = 5,
+                    role = "assistant",
+                    kind = "text",
+                    content = "Done",
+                    timestamp = 1710000002000
+                )
+            )
+        )
+
+        val restored = protocol.deserialize(protocol.serialize(original))
+
+        assertNotNull(restored)
+        assertTrue(restored is BteloMessage.TranscriptDelta)
+        val delta = restored as BteloMessage.TranscriptDelta
+        assertEquals(original.sessionId, delta.sessionId)
+        assertEquals(original.claudeSessionId, delta.claudeSessionId)
+        assertEquals("Done", delta.events.single().content)
     }
 }
