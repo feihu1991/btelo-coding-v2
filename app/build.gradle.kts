@@ -14,8 +14,8 @@ android {
         applicationId = "com.btelo.coding"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
 
         buildConfigField("String", "GITHUB_OWNER", "\"feihu1991\"")
         buildConfigField("String", "GITHUB_REPO", "\"btelo-coding-v2\"")
