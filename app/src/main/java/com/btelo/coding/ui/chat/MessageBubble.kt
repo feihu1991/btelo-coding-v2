@@ -11,6 +11,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +67,7 @@ import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
 import com.btelo.coding.ui.theme.CardSurface
 import com.btelo.coding.ui.theme.CodeBlockBg
+import com.btelo.coding.ui.theme.CodeBlockBorder
 import com.btelo.coding.ui.theme.RedError
 import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
@@ -115,7 +118,7 @@ private fun UserBubble(message: Message, clipboardManager: androidx.compose.ui.p
     Column(
         modifier = Modifier
             .padding(
-                start = 60.dp,
+                start = 44.dp,
                 end = 12.dp,
                 top = 4.dp,
                 bottom = 2.dp
@@ -131,8 +134,7 @@ private fun UserBubble(message: Message, clipboardManager: androidx.compose.ui.p
             Text(
                 text = message.content,
                 color = TextOnBubble,
-                style = MaterialTheme.typography.bodyMedium,
-                lineHeight = 22.sp
+                style = MaterialTheme.typography.bodyMedium
             )
         }
         IconButton(
@@ -155,50 +157,23 @@ private fun AiResponseBubble(message: Message, clipboardManager: androidx.compos
         modifier = Modifier
             .padding(
                 start = 12.dp,
-                end = 60.dp,
+                end = 44.dp,
                 top = 4.dp,
                 bottom = 2.dp
             ),
         horizontalArrangement = Arrangement.Start
     ) {
-        val parts = parseCodeBlocks(message.content)
-        if (parts.size == 1 && parts.first() is TextPart) {
-            Box(
-                modifier = Modifier
-                    .clip(AiBubbleShape)
-                    .background(AiBubbleDark)
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = message.content,
-                    color = TextPrimary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = 22.sp
-                )
-            }
-        } else {
-            Column(
-                modifier = Modifier
-                    .clip(AiBubbleShape)
-                    .background(AiBubbleDark)
-            ) {
-                parts.forEach { part ->
-                    when (part) {
-                        is CodePart -> CodeBlock(part.code, part.language)
-                        is TextPart -> {
-                            if (part.text.isNotBlank()) {
-                                Text(
-                                    text = part.text,
-                                    color = TextPrimary,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    lineHeight = 22.sp,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+        Box(
+            modifier = Modifier
+                .clip(AiBubbleShape)
+                .background(AiBubbleDark)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            MarkdownContent(
+                content = message.content,
+                textColor = TextPrimary,
+                baseStyle = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }
@@ -212,7 +187,7 @@ private fun ToolCallBubble(message: Message, clipboardManager: androidx.compose.
         modifier = Modifier
             .padding(
                 start = 12.dp,
-                end = 60.dp,
+                end = 44.dp,
                 top = 4.dp,
                 bottom = 2.dp
             ),
@@ -308,7 +283,7 @@ private fun FileOpBubble(message: Message, clipboardManager: androidx.compose.ui
         modifier = Modifier
             .padding(
                 start = 12.dp,
-                end = 60.dp,
+                end = 44.dp,
                 top = 4.dp,
                 bottom = 2.dp
             ),
@@ -361,7 +336,7 @@ private fun ThinkingBubble(message: Message, clipboardManager: androidx.compose.
         modifier = Modifier
             .padding(
                 start = 12.dp,
-                end = 60.dp,
+                end = 44.dp,
                 top = 4.dp,
                 bottom = 2.dp
             ),
@@ -428,7 +403,7 @@ private fun ErrorBubble(message: Message, clipboardManager: androidx.compose.ui.
         modifier = Modifier
             .padding(
                 start = 12.dp,
-                end = 60.dp,
+                end = 44.dp,
                 top = 4.dp,
                 bottom = 2.dp
             ),
@@ -472,7 +447,7 @@ private fun SystemBubble(message: Message, clipboardManager: androidx.compose.ui
         modifier = Modifier
             .padding(
                 start = 12.dp,
-                end = 60.dp,
+                end = 44.dp,
                 top = 4.dp,
                 bottom = 2.dp
             ),
@@ -544,6 +519,9 @@ private fun ActionButtonsRow(message: Message, clipboardManager: androidx.compos
 @Composable
 fun CodeBlock(code: String, language: String = "") {
     val clipboardManager = LocalClipboardManager.current
+    val highlightedCode = remember(code, language) {
+        SyntaxHighlighter.highlight(code, language)
+    }
 
     Column(
         modifier = Modifier
@@ -559,7 +537,7 @@ fun CodeBlock(code: String, language: String = "") {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = language.ifBlank { "code" },
+                text = language.ifBlank { "code" }.replaceFirstChar { it.uppercase() },
                 color = TextSecondary,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
@@ -578,14 +556,19 @@ fun CodeBlock(code: String, language: String = "") {
             }
         }
 
+        HorizontalDivider(color = CodeBlockBorder, thickness = 0.5.dp)
+
+        val scrollState = rememberScrollState()
         SelectionContainer {
             Text(
-                text = code,
-                color = TextPrimary,
+                text = highlightedCode,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                maxLines = Int.MAX_VALUE,
+                modifier = Modifier
+                    .horizontalScroll(scrollState)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
             )
         }
     }
@@ -796,11 +779,10 @@ fun AiStreamingBubble(partialContent: String) {
                         )
                     }
                 } else {
-                    Text(
-                        text = partialContent,
-                        color = TextPrimary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        lineHeight = 22.sp
+                    MarkdownContent(
+                        content = partialContent,
+                        textColor = TextPrimary,
+                        baseStyle = MaterialTheme.typography.bodyMedium
                     )
                 }
                 if (partialContent != "…") {

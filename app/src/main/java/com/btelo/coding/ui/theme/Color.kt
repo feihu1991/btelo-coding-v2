@@ -8,9 +8,9 @@ val CardSurface = Color(0xFF2A2A2A)
 val CardElevated = Color(0xFF2A2A2A)
 val InputSurface = Color(0xFF2A2A2A)
 
-// User bubble gradient (green, per PRD)
-val BubbleGradientStart = Color(0xFF22C55E)  // green-500
-val BubbleGradientEnd = Color(0xFF16A34A)    // green-600
+// User bubble gradient (green, darker for better white text contrast)
+val BubbleGradientStart = Color(0xFF1A9E48)  // green-700
+val BubbleGradientEnd = Color(0xFF15803D)    // green-800
 
 // AI bubble
 val AiBubbleDark = Color(0xFF2A2A2A)
@@ -22,7 +22,7 @@ val SendGradientEnd = Color(0xFF6366F1)
 // Text
 val TextPrimary = Color(0xFFF5F5F7)
 val TextSecondary = Color(0xFF888888)          // PRD Appendix A.3
-val TextTertiary = Color(0x59F5F5F7)           // rgba(245,245,247,0.35)
+val TextTertiary = Color(0x8CF5F5F7)           // rgba(245,245,247,0.55) - WCAG AA
 val TextOnBubble = Color(0xFFFFFFFF)
 
 // Status colors
@@ -54,3 +54,12 @@ val AvatarColors = listOf(
 // Code block
 val CodeBlockBg = Color(0xFF0D1117)
 val CodeBlockBorder = Color(0xFF30363D)
+
+// Syntax highlighting (GitHub Dark theme)
+val SyntaxKeyword = Color(0xFFFF7B72)    // coral red
+val SyntaxString = Color(0xFFA5D6FF)     // light blue
+val SyntaxComment = Color(0xFF8B949E)    // muted gray
+val SyntaxNumber = Color(0xFF79C0FF)     // cyan
+val SyntaxType = Color(0xFFFFA657)       // orange
+val SyntaxFunction = Color(0xFFD2A8FF)   // purple
+val SyntaxProperty = Color(0xFF7EE787)   // green
