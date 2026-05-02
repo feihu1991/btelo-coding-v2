@@ -2,8 +2,11 @@ name: Build and Release APK
 
 on:
   push:
+    branches:
+      - codex/rebuild-prd-core
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,12 +18,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: temurin
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -31,28 +36,44 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
-      - name: Get version from tag
+      - name: Resolve release version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -n 1)"
+            TAG="v${VERSION}"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -f "${TAG}" "${GITHUB_SHA}"
+            git push -f origin "${TAG}"
+          fi
+          echo "VERSION=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "TAG=${TAG}" >> "${GITHUB_OUTPUT}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.TAG }}
           name: v${{ steps.version.outputs.VERSION }}
           body: |
-            ## 更新内容
+            ## Updates
 
-            - 详见 [CHANGELOG](https://github.com/${{ github.repository }}/commits/v${{ steps.version.outputs.VERSION }})
+            - Built from `${{ github.sha }}`
+            - Source branch: `${{ github.ref_name }}`
 
-            ## 下载
+            ## Download
 
-            下载下方 APK 文件，在手机上安装即可更新。
+            Download the APK asset below and install it on the phone.
 
-            ## 安装说明
+            ## Install
 
-            1. 下载 APK 文件
-            2. 允许安装未知来源应用
-            3. 安装并重启应用
+            1. Download the APK.
+            2. Allow installing from unknown sources if Android asks.
+            3. Install and reopen the app.
           files: app/build/outputs/apk/debug/*.apk
           draft: false
           prerelease: false

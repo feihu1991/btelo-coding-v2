@@ -112,6 +112,45 @@ function forwardMessage(targetWs, senderWs, rawMessage, messageType) {
   return false;
 }
 
+function normalizeBridgePath(value) {
+  const raw = String(value || process.cwd()).trim();
+  const normalized = path.normalize(raw);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function bridgeIdentity(bridgeInfo = {}) {
+  return [
+    String(bridgeInfo.device_name || 'unknown').trim().toLowerCase(),
+    normalizeBridgePath(bridgeInfo.work_dir),
+    String(bridgeInfo.mode || 'resume').trim().toLowerCase(),
+    String(bridgeInfo.command || '').trim()
+  ].join('|');
+}
+
+function safeCloseWs(ws, code, reason) {
+  if (!ws) return;
+  try {
+    if (ws.readyState === 0 || ws.readyState === 1) {
+      ws.close(code, reason);
+    }
+  } catch (error) {
+    console.warn(`[RELAY] Failed to close websocket: ${error.message}`);
+  }
+}
+
+function deleteSession(sessionId, reason = 'session removed') {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+
+  safeCloseWs(session.mobileWs, 4000, reason);
+  safeCloseWs(session.bridgeWs, 4000, reason);
+  for (const [token, tokenData] of tokens) {
+    if (tokenData.sessionId === sessionId) tokens.delete(token);
+  }
+  sessions.delete(sessionId);
+  return true;
+}
+
 function readAndroidVersion() {
   const gradlePath = path.join(PROJECT_ROOT, 'app', 'build.gradle.kts');
   try {
@@ -164,6 +203,20 @@ app.post('/bridge/register', (req, res) => {
     return res.status(400).json({ error: 'auth_code (6 digits) required' });
   }
 
+  const bridgeInfo = {
+    device_name: device_name || 'unknown',
+    work_dir: work_dir || process.cwd(),
+    mode: mode || 'resume',
+    command: command || null
+  };
+  const identity = bridgeIdentity(bridgeInfo);
+  for (const [id, existing] of sessions) {
+    if (bridgeIdentity(existing.bridgeInfo) === identity) {
+      deleteSession(id, 'Bridge re-registered');
+      console.log(`[RELAY] Replaced duplicate bridge session: ${id}`);
+    }
+  }
+
   const sessionId = 'sess-' + uuidv4().substring(0, 8);
   const connectToken = 'connect-' + crypto.randomBytes(16).toString('hex');
   const bridgeToken = 'bridge-' + crypto.randomBytes(16).toString('hex');
@@ -176,12 +229,7 @@ app.post('/bridge/register', (req, res) => {
     bridgeToken,
     authCode: auth_code,
     createdAt: Date.now(),
-    bridgeInfo: {
-      device_name: device_name || 'unknown',
-      work_dir: work_dir || process.cwd(),
-      mode: mode || 'resume',
-      command: command || null
-    },
+    bridgeInfo,
     mobileHeartbeat: null,
     bridgeHeartbeat: Date.now()
   };
@@ -268,7 +316,7 @@ app.get('/sessions', (req, res) => {
 // API: List available bridges (for mobile discovery)
 // ============================================================
 app.get('/bridges', (req, res) => {
-  const list = [];
+  const byIdentity = new Map();
   const now = Date.now();
   const STALE_AGE = 5 * 60 * 1000; // 5 minutes
   for (const [id, s] of sessions) {
@@ -276,7 +324,7 @@ app.get('/bridges', (req, res) => {
     if (!s.bridgeWs && !s.mobileWs && (now - s.createdAt) > STALE_AGE) continue;
     // Skip if bridge never connected or disconnected and no mobile
     if (!s.bridgeWs && !s.mobileWs && (now - s.createdAt) > 30000) continue;
-    list.push({
+    const item = {
       id: id,
       device_name: s.bridgeInfo?.device_name || 'unknown',
       work_dir: s.bridgeInfo?.work_dir || '',
@@ -284,8 +332,16 @@ app.get('/bridges', (req, res) => {
       bridge_connected: s.bridgeWs !== null,
       mobile_connected: s.mobileWs !== null,
       created_at: s.createdAt
-    });
+    };
+    const key = bridgeIdentity(s.bridgeInfo);
+    const previous = byIdentity.get(key);
+    const itemConnected = item.bridge_connected || item.mobile_connected;
+    const previousConnected = previous?.bridge_connected || previous?.mobile_connected;
+    if (!previous || (itemConnected && !previousConnected) || item.created_at > previous.created_at) {
+      byIdentity.set(key, item);
+    }
   }
+  const list = [...byIdentity.values()].sort((a, b) => b.created_at - a.created_at);
   res.json({ success: true, bridges: list });
 });
 
@@ -699,9 +755,7 @@ setInterval(() => {
     const bothDisconnected = !session.mobileWs && !session.bridgeWs;
     const age = now - session.createdAt;
     if (bothDisconnected && age > SESSION_MAX_AGE) {
-      sessions.delete(id);
-      tokens.delete(session.connectToken);
-      tokens.delete(session.bridgeToken);
+      deleteSession(id, 'Session expired');
       console.log(`[RELAY] Cleaned up stale session: ${id}`);
     }
   }
