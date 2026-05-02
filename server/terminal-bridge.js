@@ -71,6 +71,19 @@ function stripAnsi(value) {
     .replace(/\x1b[=>]/g, '');
 }
 
+function terminalDimension(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function localTerminalSize() {
+  return {
+    cols: terminalDimension(process.env.BTELO_COLS || process.stdout.columns || process.env.COLUMNS, 120, 40, 500),
+    rows: terminalDimension(process.env.BTELO_ROWS || process.stdout.rows || process.env.LINES, 40, 10, 200)
+  };
+}
+
 class TerminalBridge {
   constructor() {
     this.server = DEFAULT_SERVER;
@@ -80,6 +93,7 @@ class TerminalBridge {
     this.outputBuffer = '';
     this.outputTimer = null;
     this.restarting = false;
+    this.resizeAttached = false;
   }
 
   send(message) {
@@ -154,10 +168,11 @@ class TerminalBridge {
     };
 
     if (pty) {
+      const size = localTerminalSize();
       this.term = pty.spawn(binary, CLAUDE_ARGV, {
         name: 'xterm-256color',
-        cols: Number(process.env.BTELO_COLS || 120),
-        rows: Number(process.env.BTELO_ROWS || 40),
+        cols: size.cols,
+        rows: size.rows,
         cwd: WORKDIR,
         env
       });
@@ -170,6 +185,7 @@ class TerminalBridge {
         if (!this.restarting) process.exit(exitCode || 0);
       });
       this.attachLocalInput((data) => this.term && this.term.write(data));
+      this.attachLocalResize();
       return;
     }
 
@@ -199,6 +215,19 @@ class TerminalBridge {
     try { process.stdin.setRawMode(true); } catch {}
     process.stdin.resume();
     process.stdin.on('data', write);
+  }
+
+  attachLocalResize() {
+    if (this.resizeAttached) return;
+    this.resizeAttached = true;
+    const syncSize = () => {
+      const size = localTerminalSize();
+      this.resize(size.cols, size.rows);
+    };
+    if (process.stdout && typeof process.stdout.on === 'function') {
+      process.stdout.on('resize', syncSize);
+    }
+    process.on('SIGWINCH', syncSize);
   }
 
   handleWsMessage(raw) {
