@@ -11,6 +11,7 @@ import com.btelo.coding.data.local.dao.MessageDao
 import com.btelo.coding.data.local.dao.SessionDao
 import com.btelo.coding.data.remote.api.AuthApi
 import com.btelo.coding.data.remote.api.SyncApi
+import com.btelo.coding.data.remote.AppUpdateManager
 import com.btelo.coding.data.remote.encryption.CryptoManager
 import com.btelo.coding.data.remote.encryption.SecureKeyStore
 import com.btelo.coding.data.remote.network.NetworkMonitor
@@ -122,6 +123,16 @@ object AppModule {
     @Singleton
     fun provideNetworkMonitor(@ApplicationContext context: Context): NetworkMonitor {
         return NetworkMonitor(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideAppUpdateManager(
+        @ApplicationContext context: Context,
+        okHttpClient: OkHttpClient,
+        gson: Gson
+    ): AppUpdateManager {
+        return AppUpdateManager(context, okHttpClient, gson)
     }
     
     @Provides

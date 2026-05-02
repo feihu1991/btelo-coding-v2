@@ -35,6 +35,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -52,14 +53,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.btelo.coding.data.remote.AppUpdateInfo
+import com.btelo.coding.data.remote.DownloadState
 import com.btelo.coding.ui.theme.AppBackground
 import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
@@ -77,11 +82,26 @@ fun ScanScreen(
     viewModel: ScanViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
 
     var showAuthDialog by remember { mutableStateOf(false) }
     var authBridgeId by remember { mutableStateOf("") }
     var authBridgeName by remember { mutableStateOf("") }
+
+    // Install intent launcher
+    val installLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Install completed or permission granted
+        viewModel.onInstallResult()
+    }
+
+    // Observe install intent from ViewModel
+    LaunchedEffect(Unit) {
+        viewModel.installIntent.collect { intent ->
+            installLauncher.launch(intent)
+        }
+    }
 
     // Auto-navigate when connected
     LaunchedEffect(uiState.isConnected, uiState.sessionId) {
@@ -90,40 +110,15 @@ fun ScanScreen(
         }
     }
 
+    // Update dialog
     uiState.updateInfo?.let { update ->
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissUpdatePrompt() },
-            title = { Text("发现新版本", color = TextPrimary) },
-            text = {
-                Column {
-                    Text(
-                        text = "当前电脑已打包 ${update.versionName}，可以下载到手机更新。",
-                        color = TextSecondary
-                    )
-                    if (update.sizeBytes > 0) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "大小：${update.sizeBytes / 1024 / 1024} MB",
-                            color = TextTertiary,
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    update.downloadUrl?.let { uriHandler.openUri(it) }
-                    viewModel.dismissUpdatePrompt()
-                }) {
-                    Text("下载更新", color = BubbleGradientStart)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.dismissUpdatePrompt() }) {
-                    Text("稍后", color = TextSecondary)
-                }
-            },
-            containerColor = CardSurface
+        UpdateDialog(
+            updateInfo = update,
+            downloadState = uiState.downloadState,
+            onDismiss = { viewModel.dismissUpdatePrompt() },
+            onDownload = { viewModel.startDownload() },
+            onCancel = { viewModel.cancelDownload() },
+            onInstall = { viewModel.installApk() }
         )
     }
 
@@ -567,5 +562,167 @@ private fun AuthCodeDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun UpdateDialog(
+    updateInfo: AppUpdateInfo,
+    downloadState: DownloadState?,
+    onDismiss: () -> Unit,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onInstall: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = {
+            // Only allow dismiss when not downloading
+            if (downloadState !is DownloadState.Progress) {
+                onDismiss()
+            }
+        },
+        title = {
+            Text(
+                text = if (downloadState is DownloadState.Completed) "下载完成" else "发现新版本",
+                color = TextPrimary
+            )
+        },
+        text = {
+            Column {
+                when (downloadState) {
+                    is DownloadState.Progress -> {
+                        // Downloading state
+                        Text(
+                            text = "正在下载 ${updateInfo.versionName}...",
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        LinearProgressIndicator(
+                            progress = { downloadState.percent / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = BubbleGradientStart,
+                            trackColor = TextTertiary.copy(alpha = 0.2f)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${downloadState.percent}%",
+                            color = TextTertiary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.End
+                        )
+                    }
+                    is DownloadState.Completed -> {
+                        // Download complete state
+                        Text(
+                            text = "新版本 ${updateInfo.versionName} 已下载完成，点击安装按钮开始更新。",
+                            color = TextSecondary
+                        )
+                    }
+                    is DownloadState.Failed -> {
+                        // Download failed state
+                        Text(
+                            text = "下载失败：${downloadState.error}",
+                            color = RedError
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "版本：${updateInfo.versionName}",
+                            color = TextSecondary
+                        )
+                    }
+                    null -> {
+                        // Initial update available state
+                        Text(
+                            text = "新版本 ${updateInfo.versionName} 已发布，是否下载更新？",
+                            color = TextSecondary
+                        )
+                        if (updateInfo.sizeBytes > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "大小：${formatFileSize(updateInfo.sizeBytes)}",
+                                color = TextTertiary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        if (!updateInfo.releaseNotes.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "更新说明：",
+                                color = TextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = updateInfo.releaseNotes,
+                                color = TextTertiary,
+                                fontSize = 11.sp,
+                                maxLines = 5
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when (downloadState) {
+                is DownloadState.Progress -> {
+                    TextButton(onClick = onCancel) {
+                        Text("取消", color = RedError)
+                    }
+                }
+                is DownloadState.Completed -> {
+                    TextButton(onClick = onInstall) {
+                        Text("安装", color = BubbleGradientStart)
+                    }
+                }
+                is DownloadState.Failed -> {
+                    TextButton(onClick = onDownload) {
+                        Text("重试", color = BubbleGradientStart)
+                    }
+                }
+                null -> {
+                    TextButton(onClick = onDownload) {
+                        Text("下载更新", color = BubbleGradientStart)
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            when (downloadState) {
+                is DownloadState.Progress -> {
+                    // No dismiss button while downloading
+                }
+                is DownloadState.Completed -> {
+                    TextButton(onClick = onDismiss) {
+                        Text("稍后", color = TextSecondary)
+                    }
+                }
+                is DownloadState.Failed -> {
+                    TextButton(onClick = onDismiss) {
+                        Text("取消", color = TextSecondary)
+                    }
+                }
+                null -> {
+                    TextButton(onClick = onDismiss) {
+                        Text("稍后", color = TextSecondary)
+                    }
+                }
+            }
+        },
+        containerColor = CardSurface
+    )
+}
+
+/**
+ * Format file size to human readable string
+ */
+private fun formatFileSize(bytes: Long): String {
+    return when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        bytes < 1024 * 1024 * 1024 -> "${bytes / 1024 / 1024} MB"
+        else -> "${bytes / 1024 / 1024 / 1024} GB"
     }
 }

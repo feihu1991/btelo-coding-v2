@@ -11,3 +11,7 @@
 # Keep OkHttp classes
 -dontwarn okhttp3.**
 -dontwarn okio.**
+
+# Keep GitHub API models for app update
+-keep class com.btelo.coding.data.remote.GitHubRelease { *; }
+-keep class com.btelo.coding.data.remote.GitHubAsset { *; }

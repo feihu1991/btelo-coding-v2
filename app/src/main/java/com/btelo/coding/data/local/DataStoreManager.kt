@@ -385,8 +385,26 @@ class DataStoreManager @Inject constructor(
     suspend fun saveFcmToken(token: String) {
         regularPrefs.edit().putString(KEY_FCM_TOKEN, token).apply()
     }
-    
+
     fun getFcmToken(): String? {
         return regularPrefs.getString(KEY_FCM_TOKEN, null)
+    }
+
+    // ========== Update Check Rate Limiting ==========
+
+    private val KEY_LAST_UPDATE_CHECK = "last_update_check"
+
+    /**
+     * Get last update check timestamp
+     */
+    fun getLastUpdateCheck(): Long {
+        return regularPrefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+    }
+
+    /**
+     * Save last update check timestamp
+     */
+    fun saveLastUpdateCheck(timestamp: Long) {
+        regularPrefs.edit().putLong(KEY_LAST_UPDATE_CHECK, timestamp).apply()
     }
 }

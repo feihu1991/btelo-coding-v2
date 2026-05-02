@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.btelo.coding.BuildConfig
 import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.data.remote.AppUpdateInfo
+import com.btelo.coding.data.remote.AppUpdateManager
 import com.btelo.coding.data.remote.websocket.OutputType
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.domain.model.ActiveTurnState
@@ -91,7 +92,8 @@ class ChatViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val dataStoreManager: DataStoreManager,
     private val okHttpClient: OkHttpClient,
-    private val gson: Gson
+    private val gson: Gson,
+    private val appUpdateManager: AppUpdateManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -368,20 +370,11 @@ class ChatViewModel @Inject constructor(
 
     fun checkForUpdate(server: String? = null) {
         viewModelScope.launch {
-            val targetServer = server?.takeIf { it.isNotBlank() }
-                ?: authRepository.getServerAddress().firstOrNull().orEmpty()
-            if (targetServer.isBlank()) return@launch
-
             try {
-                val body = withContext(Dispatchers.IO) {
-                    val request = Request.Builder()
-                        .url("$targetServer/app/latest?current_version_code=${BuildConfig.VERSION_CODE}")
-                        .get()
-                        .build()
-                    okHttpClient.newCall(request).execute().body?.string() ?: ""
+                val updateInfo = withContext(Dispatchers.IO) {
+                    appUpdateManager.checkForUpdate()
                 }
-                val updateInfo = gson.fromJson(body, AppUpdateInfo::class.java)
-                if (updateInfo != null && updateInfo.success && updateInfo.updateAvailable && updateInfo.apkAvailable) {
+                if (updateInfo != null) {
                     _uiState.value = _uiState.value.copy(updateInfo = updateInfo)
                 }
             } catch (e: Exception) {

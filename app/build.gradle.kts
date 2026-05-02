@@ -14,8 +14,11 @@ android {
         applicationId = "com.btelo.coding"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0-mvp"
+        versionCode = 2
+        versionName = "1.0.1-mvp"
+
+        buildConfigField("String", "GITHUB_OWNER", "\"feihu1991\"")
+        buildConfigField("String", "GITHUB_REPO", "\"btelo-coding-v2\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

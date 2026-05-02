@@ -1,19 +1,24 @@
 package com.btelo.coding.ui.scan
 
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelo.coding.BuildConfig
 import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.data.remote.AppUpdateInfo
+import com.btelo.coding.data.remote.AppUpdateManager
+import com.btelo.coding.data.remote.DownloadState
 import com.btelo.coding.domain.repository.SessionRepository
 import com.btelo.coding.util.Logger
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -23,6 +28,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import java.io.File
 import java.io.IOException
 import javax.inject.Inject
 
@@ -36,7 +42,9 @@ data class ScanUiState(
     val selectedBridgeId: String? = null,
     val sessionId: String? = null,
     val wsToken: String? = null,
-    val updateInfo: AppUpdateInfo? = null
+    val updateInfo: AppUpdateInfo? = null,
+    val downloadState: DownloadState? = null,
+    val downloadedFile: File? = null
 )
 
 data class BridgeInfo(
@@ -72,7 +80,8 @@ class ScanViewModel @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val gson: Gson,
     private val dataStoreManager: DataStoreManager,
-    private val sessionRepository: SessionRepository
+    private val sessionRepository: SessionRepository,
+    private val appUpdateManager: AppUpdateManager
 ) : ViewModel() {
 
     private var discoveryCall: Call? = null
@@ -80,8 +89,13 @@ class ScanViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
 
+    // Channel for install intent (one-shot events)
+    private val _installIntent = Channel<Intent>(Channel.BUFFERED)
+    val installIntent = _installIntent.receiveAsFlow()
+
     init {
         loadSavedServerAddress()
+        checkForUpdate()
     }
 
     private fun loadSavedServerAddress() {
@@ -127,7 +141,6 @@ class ScanViewModel @Inject constructor(
                             isDiscovering = false,
                             bridges = resp.bridges
                         )
-                        checkForUpdate(server)
                     } else {
                         _uiState.value = _uiState.value.copy(
                             isDiscovering = false,
@@ -154,20 +167,30 @@ class ScanViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(isDiscovering = false)
     }
 
-    fun checkForUpdate(server: String = _uiState.value.serverAddress) {
-        if (server.isBlank()) return
-
+    /**
+     * Check GitHub Releases for updates
+     * Rate limited to once per hour
+     */
+    fun checkForUpdate() {
         viewModelScope.launch {
             try {
-                val body = withContext(Dispatchers.IO) {
-                    val request = Request.Builder()
-                        .url("$server/app/latest?current_version_code=${BuildConfig.VERSION_CODE}")
-                        .get()
-                        .build()
-                    okHttpClient.newCall(request).execute().body?.string() ?: ""
+                // Rate limiting: check once per hour
+                val now = System.currentTimeMillis()
+                val lastCheck = dataStoreManager.getLastUpdateCheck()
+                if (now - lastCheck < 3600_000L) {
+                    Logger.d("ScanVM", "Skipping update check (last check ${(now - lastCheck) / 1000}s ago)")
+                    return@launch
                 }
-                val updateInfo = gson.fromJson(body, AppUpdateInfo::class.java)
-                if (updateInfo != null && updateInfo.success && updateInfo.updateAvailable && updateInfo.apkAvailable) {
+
+                val updateInfo = withContext(Dispatchers.IO) {
+                    appUpdateManager.checkForUpdate()
+                }
+
+                // Save check timestamp
+                dataStoreManager.saveLastUpdateCheck(now)
+
+                if (updateInfo != null) {
+                    Logger.i("ScanVM", "Update available: ${updateInfo.versionName}")
                     _uiState.value = _uiState.value.copy(updateInfo = updateInfo)
                 }
             } catch (e: Exception) {
@@ -177,7 +200,78 @@ class ScanViewModel @Inject constructor(
     }
 
     fun dismissUpdatePrompt() {
-        _uiState.value = _uiState.value.copy(updateInfo = null)
+        _uiState.value = _uiState.value.copy(
+            updateInfo = null,
+            downloadState = null,
+            downloadedFile = null
+        )
+    }
+
+    /**
+     * Start downloading the update APK
+     */
+    fun startDownload() {
+        val updateInfo = _uiState.value.updateInfo ?: return
+
+        viewModelScope.launch {
+            appUpdateManager.downloadApk(updateInfo).collect { state ->
+                _uiState.value = _uiState.value.copy(downloadState = state)
+
+                when (state) {
+                    is DownloadState.Completed -> {
+                        Logger.i("ScanVM", "Download completed: ${state.file.absolutePath}")
+                        _uiState.value = _uiState.value.copy(downloadedFile = state.file)
+                    }
+                    is DownloadState.Failed -> {
+                        Logger.e("ScanVM", "Download failed: ${state.error}")
+                    }
+                    is DownloadState.Progress -> {
+                        // Progress updated in state
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Cancel ongoing download
+     */
+    fun cancelDownload() {
+        _uiState.value = _uiState.value.copy(
+            downloadState = null,
+            downloadedFile = null
+        )
+    }
+
+    /**
+     * Install the downloaded APK
+     * Checks permission first, then launches install intent
+     */
+    fun installApk() {
+        val file = _uiState.value.downloadedFile ?: return
+
+        if (!appUpdateManager.canInstallPackages()) {
+            // Request install permission
+            val intent = appUpdateManager.createInstallPermissionIntent()
+            _installIntent.trySend(intent)
+            return
+        }
+
+        // Launch install intent
+        val intent = appUpdateManager.createInstallIntent(file)
+        _installIntent.trySend(intent)
+    }
+
+    /**
+     * Called after install activity returns
+     * App may have been replaced, so just clean up state
+     */
+    fun onInstallResult() {
+        _uiState.value = _uiState.value.copy(
+            updateInfo = null,
+            downloadState = null,
+            downloadedFile = null
+        )
     }
 
     fun connectToBridge(bridgeId: String, authCode: String) {
