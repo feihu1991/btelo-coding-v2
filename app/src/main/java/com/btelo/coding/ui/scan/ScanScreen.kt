@@ -5,45 +5,31 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -70,11 +56,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -82,8 +67,7 @@ import com.btelo.coding.data.remote.AppUpdateInfo
 import com.btelo.coding.data.remote.DownloadState
 import com.btelo.coding.ui.theme.AccentBlue
 import com.btelo.coding.ui.theme.AppBackground
-import com.btelo.coding.ui.theme.BorderDefault
-import com.btelo.coding.ui.theme.BorderSubtle
+import com.btelo.coding.ui.theme.BubbleGradientEnd
 import com.btelo.coding.ui.theme.BubbleGradientStart
 import com.btelo.coding.ui.theme.CardSurface
 import com.btelo.coding.ui.theme.GreenSuccess
@@ -92,11 +76,6 @@ import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
 import com.btelo.coding.ui.theme.TextTertiary
-import com.btelo.coding.ui.theme.ThinkingPurple
-import com.btelo.coding.ui.theme.WarningAmber
-import com.btelo.coding.ui.workbench.StatusDot
-import com.btelo.coding.ui.workbench.WorkbenchBottomBar
-import com.btelo.coding.ui.workbench.WorkbenchTab
 
 @Composable
 fun ScanScreen(
@@ -104,7 +83,6 @@ fun ScanScreen(
     viewModel: ScanViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var selectedTab by remember { mutableStateOf(WorkbenchTab.Agents) }
     var showAuthDialog by remember { mutableStateOf(false) }
     var authBridgeId by remember { mutableStateOf("") }
     var authBridgeName by remember { mutableStateOf("") }
@@ -142,39 +120,239 @@ fun ScanScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AppBackground)
-            .statusBarsPadding()
     ) {
-        when (selectedTab) {
-            WorkbenchTab.Agents -> AgentsPage(
-                uiState = uiState,
-                onServerChange = viewModel::setServerAddress,
-                onDiscover = viewModel::discoverBridges,
-                onStopDiscover = viewModel::stopDiscovery,
-                onClearError = viewModel::clearError,
-                onBridgeClick = { bridge ->
-                    authBridgeId = bridge.id
-                    authBridgeName = bridge.deviceName
-                    showAuthDialog = true
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(60.dp))
+
+            // Logo
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .clip(CircleShape)
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                BubbleGradientStart.copy(alpha = 0.2f),
+                                BubbleGradientEnd.copy(alpha = 0.1f),
+                                Color.Transparent
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(
+                            brush = Brush.linearGradient(
+                                colors = listOf(BubbleGradientStart, BubbleGradientEnd)
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "B",
+                        color = TextOnBubble,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Text(
+                text = "BTELO Coding",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                fontSize = 26.sp
             )
-            WorkbenchTab.Files -> FilesPage()
-            WorkbenchTab.Browser -> BrowserPage()
-            WorkbenchTab.Devices -> DevicesPage(
-                uiState = uiState,
-                onCheckUpdate = viewModel::checkForUpdate,
-                onDiscover = viewModel::discoverBridges
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "连接到你的开发机器",
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextSecondary,
+                fontSize = 14.sp
             )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Server address input
+            OutlinedTextField(
+                value = uiState.serverAddress,
+                onValueChange = { viewModel.setServerAddress(it) },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("http://192.168.x.x:8080", color = TextTertiary) },
+                label = { Text("服务器地址") },
+                singleLine = true,
+                leadingIcon = {
+                    Icon(Icons.Default.Dns, contentDescription = null, tint = TextSecondary)
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    focusedBorderColor = BubbleGradientStart,
+                    unfocusedBorderColor = TextTertiary.copy(alpha = 0.3f),
+                    focusedLabelColor = BubbleGradientStart,
+                    unfocusedLabelColor = TextSecondary
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Search
+                ),
+                shape = RoundedCornerShape(14.dp)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Discover button
+            if (uiState.isDiscovering) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = BubbleGradientStart,
+                            disabledContainerColor = BubbleGradientStart.copy(alpha = 0.6f)
+                        ),
+                        enabled = false
+                    ) {
+                        CircularProgressIndicator(
+                            color = TextOnBubble,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("搜索中...", color = TextOnBubble, fontSize = 15.sp)
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Button(
+                        onClick = { viewModel.stopDiscovery() },
+                        modifier = Modifier.height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = RedError)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "停止", tint = TextOnBubble, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("停止", color = TextOnBubble, fontSize = 15.sp)
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = { viewModel.discoverBridges() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart)
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = TextOnBubble)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("发现设备", color = TextOnBubble, fontSize = 15.sp)
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Button(
+                        onClick = { viewModel.checkForUpdate() },
+                        modifier = Modifier.height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
+                    ) {
+                        Icon(Icons.Default.SystemUpdate, contentDescription = "检查更新", tint = TextOnBubble, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("更新", color = TextOnBubble, fontSize = 15.sp)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Error message
+            uiState.error?.let { error ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = RedError.copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = error,
+                            color = RedError,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                            fontSize = 13.sp
+                        )
+                        IconButton(onClick = { viewModel.clearError() }) {
+                            Icon(Icons.Default.Close, contentDescription = "关闭", tint = RedError, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Bridge list
+            if (uiState.bridges.isNotEmpty()) {
+                Text(
+                    text = "可用设备 (${uiState.bridges.size})",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp)
+                )
+
+                Column(modifier = Modifier.weight(1f)) {
+                    uiState.bridges.forEach { bridge ->
+                        BridgeCard(
+                            bridge = bridge,
+                            isConnecting = uiState.isConnecting && uiState.selectedBridgeId == bridge.id,
+                            onClick = {
+                                authBridgeId = bridge.id
+                                authBridgeName = bridge.deviceName
+                                showAuthDialog = true
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            } else if (!uiState.isDiscovering && uiState.error == null && uiState.serverAddress.isNotBlank()) {
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "输入服务器地址后点击\"发现设备\"",
+                    color = TextTertiary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
-        WorkbenchBottomBar(
-            selectedTab = selectedTab,
-            onTabSelected = { selectedTab = it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 22.dp, vertical = 12.dp)
-        )
-
+        // Auth code dialog
         AnimatedVisibility(
             visible = showAuthDialog,
             enter = fadeIn(),
@@ -183,7 +361,9 @@ fun ScanScreen(
             AuthCodeDialog(
                 bridgeName = authBridgeName,
                 isConnecting = uiState.isConnecting,
-                onConfirm = { code -> viewModel.connectToBridge(authBridgeId, code) },
+                onConfirm = { code ->
+                    viewModel.connectToBridge(authBridgeId, code)
+                },
                 onDismiss = {
                     showAuthDialog = false
                     viewModel.clearError()
@@ -194,420 +374,88 @@ fun ScanScreen(
 }
 
 @Composable
-private fun AgentsPage(
-    uiState: ScanUiState,
-    onServerChange: (String) -> Unit,
-    onDiscover: () -> Unit,
-    onStopDiscover: () -> Unit,
-    onClearError: () -> Unit,
-    onBridgeClick: (BridgeInfo) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 22.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 112.dp)
-    ) {
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            OnboardingCard()
-            Spacer(modifier = Modifier.height(28.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Sessions",
-                    color = TextPrimary,
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                RoundAction(Icons.Default.Refresh, "Refresh", onDiscover)
-                Spacer(modifier = Modifier.width(12.dp))
-                RoundAction(Icons.Default.Add, "Add", onDiscover)
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            ServerPanel(
-                address = uiState.serverAddress,
-                isDiscovering = uiState.isDiscovering,
-                onServerChange = onServerChange,
-                onDiscover = onDiscover,
-                onStopDiscover = onStopDiscover
-            )
-            uiState.error?.let {
-                Spacer(modifier = Modifier.height(10.dp))
-                ErrorPanel(message = it, onDismiss = onClearError)
-            }
-            Spacer(modifier = Modifier.height(18.dp))
-        }
-
-        if (uiState.bridges.isEmpty()) {
-            item {
-                EmptySessionsCard()
-                Spacer(modifier = Modifier.height(26.dp))
-            }
-        } else {
-            items(uiState.bridges, key = { it.id }) { bridge ->
-                BridgeRow(
-                    bridge = bridge,
-                    isConnecting = uiState.isConnecting && uiState.selectedBridgeId == bridge.id,
-                    onClick = { onBridgeClick(bridge) }
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-            item { Spacer(modifier = Modifier.height(18.dp)) }
-        }
-
-        item {
-            Text(
-                text = "Automation",
-                color = TextPrimary,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            AutomationRow("build:apk", "Package debug APK and publish through relay", GreenSuccess)
-            AutomationRow("restart:bridge", "Restart claudex terminal bridge remotely", GreenSuccess)
-            AutomationRow("restart:relay", "Restart local relay service on desktop", WarningAmber)
-        }
-    }
-}
-
-@Composable
-private fun OnboardingCard() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(CardSurface)
-            .padding(18.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(AccentBlue.copy(alpha = 0.16f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.Security, contentDescription = null, tint = AccentBlue)
-        }
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Meet Agent", color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("Remote Claude Code sessions from your phone", color = TextSecondary, fontSize = 14.sp)
-        }
-        Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = TextTertiary, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
-private fun ServerPanel(
-    address: String,
-    isDiscovering: Boolean,
-    onServerChange: (String) -> Unit,
-    onDiscover: () -> Unit,
-    onStopDiscover: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        border = BorderStroke(1.dp, BorderSubtle)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            OutlinedTextField(
-                value = address,
-                onValueChange = onServerChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("http://192.168.x.x:8080", color = TextTertiary) },
-                leadingIcon = { Icon(Icons.Default.Dns, contentDescription = null, tint = TextSecondary) },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedBorderColor = AccentBlue,
-                    unfocusedBorderColor = BorderDefault,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    cursorColor = AccentBlue
-                ),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Search),
-                shape = RoundedCornerShape(16.dp)
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Button(
-                onClick = { if (isDiscovering) onStopDiscover() else onDiscover() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = if (isDiscovering) RedError else AccentBlue)
-            ) {
-                if (isDiscovering) {
-                    CircularProgressIndicator(color = TextOnBubble, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Stop discovery", color = TextOnBubble)
-                } else {
-                    Icon(Icons.Default.Search, contentDescription = null, tint = TextOnBubble)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Discover desktop", color = TextOnBubble)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BridgeRow(
+private fun BridgeCard(
     bridge: BridgeInfo,
     isConnecting: Boolean,
     onClick: () -> Unit
 ) {
-    Row(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(CardSurface)
-            .clickable(enabled = !isConnecting) { onClick() }
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(enabled = !isConnecting) { onClick() },
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurface)
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(ThinkingPurple.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Terminal, contentDescription = null, tint = AccentBlue)
-        }
-        Spacer(modifier = Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = bridge.deviceName.ifBlank { "Claude Code" },
-                    color = TextPrimary,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (bridge.bridgeConnected) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    StatusDot(GreenSuccess)
-                }
-            }
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = bridge.workDir,
-                color = TextSecondary,
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (isConnecting) {
-            CircularProgressIndicator(color = AccentBlue, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-        } else {
-            Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = TextTertiary, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-@Composable
-private fun EmptySessionsCard() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, BorderDefault, RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
-            .background(CardSurface.copy(alpha = 0.45f))
-            .padding(18.dp)
-    ) {
-        Text("No active desktops", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text("Start claudex on your computer, then discover it here.", color = TextSecondary, fontSize = 14.sp)
-    }
-}
-
-@Composable
-private fun AutomationRow(title: String, subtitle: String, color: Color) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(color.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
-        }
-        Spacer(modifier = Modifier.width(14.dp))
-        Column {
-            Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text(subtitle, color = TextSecondary, fontSize = 13.sp)
-        }
-    }
-}
-
-@Composable
-private fun FilesPage() {
-    WorkbenchPlaceholder(
-        title = "Files",
-        introIcon = Icons.Default.Info,
-        introTitle = "Browse from Path",
-        introSubtitle = "Open a repository and start a new session there.",
-        rows = listOf(
-            Icons.Default.Folder to "app",
-            Icons.Default.Folder to "server",
-            Icons.Default.Code to "build.gradle.kts",
-            Icons.Default.Code to "README.md"
-        )
-    )
-}
-
-@Composable
-private fun BrowserPage() {
-    WorkbenchPlaceholder(
-        title = "Web Proxy",
-        introIcon = Icons.Default.Search,
-        introTitle = "How Browser Works",
-        introSubtitle = "Access local dev servers and websites remotely.",
-        rows = listOf(
-            Icons.Default.Storage to "Next.js Dev  localhost:3000",
-            Icons.Default.Storage to "Go API  localhost:8080",
-            Icons.Default.Storage to "Storybook  localhost:6006"
-        )
-    )
-}
-
-@Composable
-private fun DevicesPage(
-    uiState: ScanUiState,
-    onCheckUpdate: () -> Unit,
-    onDiscover: () -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 22.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 112.dp)
-    ) {
-        item {
-            Spacer(modifier = Modifier.height(80.dp))
-            Text("Devices", color = TextPrimary, fontSize = 42.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(28.dp))
-            DeviceAction("Relay server", uiState.serverAddress, AccentBlue, Icons.Default.Dns, onDiscover)
-            DeviceAction("Check app update", "Download APK from release or relay", GreenSuccess, Icons.Default.CloudDownload, onCheckUpdate)
-            DeviceAction("Connected bridges", "${uiState.bridges.size} desktop session(s)", ThinkingPurple, Icons.Default.Computer, onDiscover)
-        }
-    }
-}
-
-@Composable
-private fun WorkbenchPlaceholder(
-    title: String,
-    introIcon: ImageVector,
-    introTitle: String,
-    introSubtitle: String,
-    rows: List<Pair<ImageVector, String>>
-) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 22.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 112.dp)
-    ) {
-        item {
-            Spacer(modifier = Modifier.height(80.dp))
-            Text(title, color = TextPrimary, fontSize = 42.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(28.dp))
-            Row(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(CardSurface)
-                    .padding(18.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(BubbleGradientStart.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(introIcon, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(34.dp))
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(introTitle, color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text(introSubtitle, color = TextSecondary, fontSize = 14.sp)
-                }
-                Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = TextTertiary, modifier = Modifier.size(18.dp))
+                Icon(
+                    Icons.Default.Computer,
+                    contentDescription = null,
+                    tint = BubbleGradientStart,
+                    modifier = Modifier.size(22.dp)
+                )
             }
-            Spacer(modifier = Modifier.height(26.dp))
-        }
-        items(rows) { row ->
-            DeviceAction(row.second, "Planned workspace feature", AccentBlue, row.first, {})
-        }
-    }
-}
 
-@Composable
-private fun DeviceAction(title: String, subtitle: String, color: Color, icon: ImageVector, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 16.dp)
-            .clip(RoundedCornerShape(22.dp))
-            .background(CardSurface)
-            .clickable { onClick() }
-            .padding(18.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(color.copy(alpha = 0.16f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, contentDescription = null, tint = color)
-        }
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            Text(subtitle, color = TextSecondary, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = TextTertiary, modifier = Modifier.size(18.dp))
-    }
-}
+            Spacer(modifier = Modifier.width(14.dp))
 
-@Composable
-private fun RoundAction(icon: ImageVector, label: String, onClick: () -> Unit) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(CardSurface)
-    ) {
-        Icon(icon, contentDescription = label, tint = TextPrimary)
-    }
-}
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = bridge.deviceName,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp
+                    )
+                    if (bridge.bridgeConnected) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = GreenSuccess,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = bridge.workDir,
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+                Text(
+                    text = bridge.mode.uppercase(),
+                    color = TextTertiary,
+                    fontSize = 11.sp
+                )
+            }
 
-@Composable
-private fun ErrorPanel(message: String, onDismiss: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(RedError.copy(alpha = 0.12f))
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(message, color = RedError, modifier = Modifier.weight(1f), fontSize = 13.sp)
-        IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.Close, contentDescription = null, tint = RedError, modifier = Modifier.size(18.dp))
+            if (isConnecting) {
+                CircularProgressIndicator(
+                    color = BubbleGradientStart,
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = "认证",
+                    tint = TextTertiary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }
@@ -624,7 +472,7 @@ private fun AuthCodeDialog(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.82f)),
+            .background(Color.Black.copy(alpha = 0.85f)),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -632,49 +480,91 @@ private fun AuthCodeDialog(
                 .fillMaxSize()
                 .clickable { onDismiss() }
         )
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(28.dp),
-            shape = RoundedCornerShape(28.dp),
+                .padding(32.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = CardSurface)
         ) {
-            Column(modifier = Modifier.padding(22.dp)) {
-                Text("Enter auth code", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Connect to $bridgeName", color = TextSecondary, fontSize = 14.sp)
-                Spacer(modifier = Modifier.height(18.dp))
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "输入认证码",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "关闭",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "连接至: $bridgeName",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
                 OutlinedTextField(
                     value = code,
-                    onValueChange = { value -> code = value.filter { it.isDigit() }.take(6) },
+                    onValueChange = { if (it.length <= 6) code = it.filter { c -> c.isDigit() } },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("000000", color = TextTertiary) },
+                    placeholder = { Text("000000", color = TextTertiary, fontSize = 24.sp, textAlign = TextAlign.Center) },
                     singleLine = true,
+                    textStyle = MaterialTheme.typography.headlineLarge.copy(
+                        textAlign = TextAlign.Center,
+                        letterSpacing = 8.sp,
+                        fontSize = 28.sp,
+                        color = TextPrimary
+                    ),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = AccentBlue,
-                        unfocusedBorderColor = BorderDefault,
-                        cursorColor = AccentBlue
+                        focusedBorderColor = BubbleGradientStart,
+                        unfocusedBorderColor = TextTertiary.copy(alpha = 0.3f),
+                        focusedTextColor = TextPrimary
                     ),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(18.dp)
+                    shape = RoundedCornerShape(14.dp)
                 )
-                Spacer(modifier = Modifier.height(18.dp))
+
+                Spacer(modifier = Modifier.height(24.dp))
+
                 Button(
-                    onClick = { onConfirm(code) },
-                    enabled = code.length == 6 && !isConnecting,
+                    onClick = { if (code.length == 6) onConfirm(code) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart),
+                    enabled = code.length == 6 && !isConnecting
                 ) {
                     if (isConnecting) {
-                        CircularProgressIndicator(color = TextOnBubble, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            color = TextOnBubble,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
+                        Text("验证中...", color = TextOnBubble, fontSize = 15.sp)
+                    } else {
+                        Text("连接", color = TextOnBubble, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    Text("Connect", color = TextOnBubble, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -691,10 +581,14 @@ private fun UpdateDialog(
     onInstall: () -> Unit
 ) {
     AlertDialog(
-        onDismissRequest = { if (downloadState !is DownloadState.Progress) onDismiss() },
+        onDismissRequest = {
+            if (downloadState !is DownloadState.Progress) {
+                onDismiss()
+            }
+        },
         title = {
             Text(
-                text = if (downloadState is DownloadState.Completed) "Download ready" else "Update available",
+                text = if (downloadState is DownloadState.Completed) "下载完成" else "发现新版本",
                 color = TextPrimary
             )
         },
@@ -702,24 +596,71 @@ private fun UpdateDialog(
             Column {
                 when (downloadState) {
                     is DownloadState.Progress -> {
-                        Text("Downloading ${updateInfo.versionName}", color = TextSecondary)
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "正在下载 ${updateInfo.versionName}...",
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                         LinearProgressIndicator(
                             progress = { downloadState.percent / 100f },
                             modifier = Modifier.fillMaxWidth(),
-                            color = AccentBlue,
+                            color = BubbleGradientStart,
                             trackColor = TextTertiary.copy(alpha = 0.2f)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("${downloadState.percent}%", color = TextTertiary, fontSize = 12.sp)
+                        Text(
+                            text = "${downloadState.percent}%",
+                            color = TextTertiary,
+                            fontSize = 12.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.End
+                        )
                     }
-                    is DownloadState.Completed -> Text("The APK has been downloaded and is ready to install.", color = TextSecondary)
-                    is DownloadState.Failed -> Text("Download failed: ${downloadState.error}", color = RedError)
+                    is DownloadState.Completed -> {
+                        Text(
+                            text = "新版本 ${updateInfo.versionName} 已下载完成，点击安装按钮开始更新。",
+                            color = TextSecondary
+                        )
+                    }
+                    is DownloadState.Failed -> {
+                        Text(
+                            text = "下载失败：${downloadState.error}",
+                            color = RedError
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "版本：${updateInfo.versionName}",
+                            color = TextSecondary
+                        )
+                    }
                     null -> {
-                        Text("Version ${updateInfo.versionName} is available.", color = TextSecondary)
+                        Text(
+                            text = "新版本 ${updateInfo.versionName} 已发布，是否下载更新？",
+                            color = TextSecondary
+                        )
                         if (updateInfo.sizeBytes > 0) {
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("Size: ${formatFileSize(updateInfo.sizeBytes)}", color = TextTertiary, fontSize = 12.sp)
+                            Text(
+                                text = "大小：${formatFileSize(updateInfo.sizeBytes)}",
+                                color = TextTertiary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        if (!updateInfo.releaseNotes.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "更新说明：",
+                                color = TextSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = updateInfo.releaseNotes,
+                                color = TextTertiary,
+                                fontSize = 11.sp,
+                                maxLines = 5
+                            )
                         }
                     }
                 }
@@ -727,15 +668,46 @@ private fun UpdateDialog(
         },
         confirmButton = {
             when (downloadState) {
-                is DownloadState.Progress -> TextButton(onClick = onCancel) { Text("Cancel", color = RedError) }
-                is DownloadState.Completed -> TextButton(onClick = onInstall) { Text("Install", color = AccentBlue) }
-                is DownloadState.Failed -> TextButton(onClick = onDownload) { Text("Retry", color = AccentBlue) }
-                null -> TextButton(onClick = onDownload) { Text("Download", color = AccentBlue) }
+                is DownloadState.Progress -> {
+                    TextButton(onClick = onCancel) {
+                        Text("取消", color = RedError)
+                    }
+                }
+                is DownloadState.Completed -> {
+                    TextButton(onClick = onInstall) {
+                        Text("安装", color = BubbleGradientStart)
+                    }
+                }
+                is DownloadState.Failed -> {
+                    TextButton(onClick = onDownload) {
+                        Text("重试", color = BubbleGradientStart)
+                    }
+                }
+                null -> {
+                    TextButton(onClick = onDownload) {
+                        Text("下载更新", color = BubbleGradientStart)
+                    }
+                }
             }
         },
         dismissButton = {
-            if (downloadState !is DownloadState.Progress) {
-                TextButton(onClick = onDismiss) { Text("Later", color = TextSecondary) }
+            when (downloadState) {
+                is DownloadState.Progress -> {}
+                is DownloadState.Completed -> {
+                    TextButton(onClick = onDismiss) {
+                        Text("稍后", color = TextSecondary)
+                    }
+                }
+                is DownloadState.Failed -> {
+                    TextButton(onClick = onDismiss) {
+                        Text("取消", color = TextSecondary)
+                    }
+                }
+                null -> {
+                    TextButton(onClick = onDismiss) {
+                        Text("稍后", color = TextSecondary)
+                    }
+                }
             }
         },
         containerColor = CardSurface

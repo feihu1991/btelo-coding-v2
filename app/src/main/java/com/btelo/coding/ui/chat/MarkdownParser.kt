@@ -1,13 +1,5 @@
 package com.btelo.coding.ui.chat
 
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.sp
-
 // AST Node types
 sealed class MarkdownNode {
     data class Heading(val level: Int, val text: String) : MarkdownNode()
@@ -211,58 +203,3 @@ fun parseInline(text: String): List<InlineNode> {
     return nodes
 }
 
-/**
- * Convert inline nodes to AnnotatedString
- */
-fun inlineToAnnotatedString(
-    parts: List<InlineNode>,
-    baseColor: androidx.compose.ui.graphics.Color,
-    linkColor: androidx.compose.ui.graphics.Color
-): AnnotatedString {
-    return buildAnnotatedString {
-        parts.forEach { part ->
-            when (part) {
-                is InlineNode.Text -> append(part.text)
-                is InlineNode.Bold -> {
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                    append(part.text)
-                    pop()
-                }
-                is InlineNode.Italic -> {
-                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                    append(part.text)
-                    pop()
-                }
-                is InlineNode.BoldItalic -> {
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic))
-                    append(part.text)
-                    pop()
-                }
-                is InlineNode.Code -> {
-                    pushStyle(SpanStyle(
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        background = androidx.compose.ui.graphics.Color(0xFF1E1E1E)
-                    ))
-                    append(" ${part.code} ")
-                    pop()
-                }
-                is InlineNode.Link -> {
-                    pushStyle(SpanStyle(
-                        color = linkColor,
-                        textDecoration = TextDecoration.Underline
-                    ))
-                    pushStringAnnotation("URL", part.url)
-                    append(part.text)
-                    pop()
-                    pop()
-                }
-                is InlineNode.Strikethrough -> {
-                    pushStyle(SpanStyle(textDecoration = TextDecoration.LineThrough))
-                    append(part.text)
-                    pop()
-                }
-            }
-        }
-    }
-}
