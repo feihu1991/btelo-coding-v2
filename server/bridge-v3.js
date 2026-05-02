@@ -7,6 +7,7 @@ const { execSync } = require('child_process');
 
 const { selectClaudeSession, isProcessAlive } = require('./v3/claude-session-index');
 const { loadTranscriptEvents, snapshotMessage } = require('./v3/transcript-events');
+const { buildActiveTurnSnapshot } = require('./v3/active-turn-snapshot');
 const TranscriptTail = require('./v3/transcript-tail');
 const WindowsConsoleInput = require('./v3/windows-console-input');
 
@@ -86,6 +87,40 @@ function sendWs(state, message) {
   }
 }
 
+function rememberEvents(state, events) {
+  if (!Array.isArray(events) || events.length === 0) return;
+  const existingIds = new Set(state.events.map((event) => event.id));
+  for (const event of events) {
+    if (!existingIds.has(event.id)) {
+      state.events.push(event);
+      existingIds.add(event.id);
+    }
+  }
+  if (state.events.length > state.historyLimit * 2) {
+    state.events = state.events.slice(-(state.historyLimit * 2));
+  }
+}
+
+function emitActiveTurnSnapshot(state) {
+  sendWs(state, buildActiveTurnSnapshot({
+    relaySessionId: state.relaySessionId,
+    claudeSessionId: state.claudeSessionId,
+    workspaceRoot: state.workDir,
+    cursor: state.events.length ? state.events[state.events.length - 1].seq : 0,
+    events: state.events,
+    pendingInputs: state.pendingInputs
+  }));
+}
+
+function sendInputStatus(state, payload) {
+  sendWs(state, {
+    type: 'input_status',
+    timestamp: Date.now(),
+    ...payload
+  });
+  emitActiveTurnSnapshot(state);
+}
+
 function printSessionList(sessions) {
   console.log(`  Claude sessions: ${sessions.length}`);
   for (const session of sessions) {
@@ -111,6 +146,7 @@ function attachCanonicalSession(state, target) {
   state.claudePid = target.pid;
   state.workDir = target.cwd;
   state.transcriptPath = target.transcriptPath;
+  state.events = events.slice();
 
   console.log(`[BRIDGE:v3] Attached ${target.sessionId.substring(0, 12)}... PID:${target.pid} events:${events.length}`);
 
@@ -120,13 +156,18 @@ function attachCanonicalSession(state, target) {
     events,
     cursor: nextSeq - 1
   }));
+  emitActiveTurnSnapshot(state);
 
   state.tail = new TranscriptTail({
     filePath: target.transcriptPath,
     relaySessionId: state.relaySessionId,
     claudeSessionId: target.sessionId,
     startSeq: nextSeq,
-    onDelta: (message) => sendWs(state, message),
+    onDelta: (message) => {
+      rememberEvents(state, message.events);
+      sendWs(state, message);
+      emitActiveTurnSnapshot(state);
+    },
     onParsedEvent: (event) => {
       if (event.role === 'user') confirmPendingInput(state, event);
     }
@@ -155,13 +196,12 @@ function confirmPendingInput(state, event) {
   const match = state.pendingInputs.find((input) => normalizeInput(input.content) === normalized);
   if (!match) return;
 
+  rememberEvents(state, [event]);
   state.pendingInputs = state.pendingInputs.filter((input) => input.id !== match.id);
-  sendWs(state, {
-    type: 'input_status',
+  sendInputStatus(state, {
     client_message_id: match.id,
     status: 'committed',
-    transcript_event_id: event.id,
-    timestamp: Date.now()
+    transcript_event_id: event.id
   });
 }
 
@@ -172,12 +212,10 @@ async function handleCommand(state, content, clientMessageId) {
   if (!state.claudeSession || !state.claudePid || !isProcessAlive(state.claudePid)) {
     const { session } = selectClaudeSession({ workDir: state.workDir, sessionId: state.claudeSessionId });
     if (!session || !session.isAlive) {
-      sendWs(state, {
-        type: 'input_status',
+      sendInputStatus(state, {
         client_message_id: clientMessageId || null,
         status: 'failed',
-        message: 'No running Claude Code terminal found',
-        timestamp: Date.now()
+        message: 'No running Claude Code terminal found'
       });
       return;
     }
@@ -185,31 +223,28 @@ async function handleCommand(state, content, clientMessageId) {
   }
 
   const id = clientMessageId || `phone-${Date.now()}`;
-  state.pendingInputs.push({ id, content: text, createdAt: Date.now() });
-  sendWs(state, {
-    type: 'input_status',
+  state.pendingInputs.push({ id, content: text, status: 'injecting', createdAt: Date.now(), updatedAt: Date.now() });
+  sendInputStatus(state, {
     client_message_id: id,
-    status: 'injecting',
-    timestamp: Date.now()
+    status: 'injecting'
   });
 
   try {
     const result = await state.input.sendText(state.claudeSession, text);
-    sendWs(state, {
-      type: 'input_status',
+    state.pendingInputs = state.pendingInputs.map((input) => (
+      input.id === id ? { ...input, status: 'injected', updatedAt: Date.now() } : input
+    ));
+    sendInputStatus(state, {
       client_message_id: id,
       status: 'injected',
-      input_mode: result.mode,
-      timestamp: Date.now()
+      input_mode: result.mode
     });
   } catch (err) {
     state.pendingInputs = state.pendingInputs.filter((input) => input.id !== id);
-    sendWs(state, {
-      type: 'input_status',
+    sendInputStatus(state, {
       client_message_id: id,
       status: 'failed',
-      message: err.message,
-      timestamp: Date.now()
+      message: err.message
     });
   }
 }
@@ -229,6 +264,7 @@ async function main() {
     claudeSessionId: session && session.sessionId,
     claudePid: session && session.pid,
     transcriptPath: session && session.transcriptPath,
+    events: [],
     tail: null,
     input: new WindowsConsoleInput(),
     pendingInputs: []

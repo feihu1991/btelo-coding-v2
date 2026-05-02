@@ -93,6 +93,14 @@ sealed class BteloMessage {
         val events: List<TranscriptEvent>
     ) : BteloMessage()
 
+    data class ActiveTurnSnapshot(
+        val sessionId: String,
+        val claudeSessionId: String,
+        val workspaceRoot: String? = null,
+        val cursor: Int,
+        val activeTurn: ActiveTurn
+    ) : BteloMessage()
+
     data class InputStatus(
         val clientMessageId: String?,
         val status: String,
@@ -169,6 +177,9 @@ sealed class BteloMessage {
  * Metadata for structured output messages
  */
 data class OutputMetadata(
+    val sourceKind: String? = null,
+    val terminality: String? = null,
+    val fingerprint: String? = null,
     val toolId: String? = null,
     val toolName: String? = null,
     val toolType: String? = null,
@@ -200,6 +211,35 @@ data class TranscriptEvent(
     val content: String,
     val timestamp: Long,
     val metadata: OutputMetadata = OutputMetadata()
+)
+
+data class ActiveTurn(
+    val isActive: Boolean,
+    val status: String,
+    val pendingInputs: List<PendingInput> = emptyList(),
+    val lastUserEventId: String? = null,
+    val lastAssistantEventId: String? = null,
+    val lastTerminalEventId: String? = null,
+    val activeTools: List<ActiveTool> = emptyList(),
+    val textTail: String = "",
+    val updatedAt: Long = 0L
+)
+
+data class PendingInput(
+    val clientMessageId: String,
+    val contentPreview: String,
+    val status: String,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+data class ActiveTool(
+    val eventId: String,
+    val toolId: String? = null,
+    val toolName: String? = null,
+    val kind: String,
+    val content: String,
+    val startedAt: Long
 )
 
 enum class InputType {
@@ -275,6 +315,15 @@ class MessageProtocol(private val gson: Gson) {
                 json.addProperty("claude_session_id", message.claudeSessionId)
                 json.addProperty("cursor", message.cursor)
                 json.add("events", gson.toJsonTree(message.events))
+            }
+            is BteloMessage.ActiveTurnSnapshot -> {
+                json.addProperty("type", "active_turn_snapshot")
+                json.addProperty("version", 3)
+                json.addProperty("session_id", message.sessionId)
+                json.addProperty("claude_session_id", message.claudeSessionId)
+                message.workspaceRoot?.let { json.addProperty("workspace_root", it) }
+                json.addProperty("cursor", message.cursor)
+                json.add("active_turn", gson.toJsonTree(message.activeTurn))
             }
             is BteloMessage.InputStatus -> {
                 json.addProperty("type", "input_status")
@@ -429,6 +478,15 @@ class MessageProtocol(private val gson: Gson) {
                         events = parseTranscriptEvents(jsonObject)
                     )
                 }
+                "active_turn_snapshot" -> {
+                    BteloMessage.ActiveTurnSnapshot(
+                        sessionId = optionalString(jsonObject, "session_id") ?: "",
+                        claudeSessionId = optionalString(jsonObject, "claude_session_id") ?: "",
+                        workspaceRoot = optionalString(jsonObject, "workspace_root"),
+                        cursor = jsonObject.get("cursor")?.asInt ?: 0,
+                        activeTurn = parseActiveTurn(jsonObject.getAsJsonObject("active_turn"))
+                    )
+                }
                 "input_status" -> BteloMessage.InputStatus(
                     clientMessageId = optionalString(jsonObject, "client_message_id")
                         ?: optionalString(jsonObject, "clientMessageId"),
@@ -554,9 +612,59 @@ class MessageProtocol(private val gson: Gson) {
         }
     }
 
+    private fun parseActiveTurn(activeTurnObj: JsonObject?): ActiveTurn {
+        if (activeTurnObj == null) {
+            return ActiveTurn(isActive = false, status = "idle")
+        }
+
+        val pendingInputs = activeTurnObj.getAsJsonArray("pending_inputs")
+            ?.mapNotNull { element ->
+                if (!element.isJsonObject) return@mapNotNull null
+                val obj = element.asJsonObject
+                PendingInput(
+                    clientMessageId = optionalString(obj, "client_message_id") ?: "",
+                    contentPreview = optionalString(obj, "content_preview") ?: "",
+                    status = optionalString(obj, "status") ?: "pending",
+                    createdAt = obj.get("created_at")?.asLong ?: 0L,
+                    updatedAt = obj.get("updated_at")?.asLong ?: 0L
+                )
+            }
+            ?: emptyList()
+
+        val activeTools = activeTurnObj.getAsJsonArray("active_tools")
+            ?.mapNotNull { element ->
+                if (!element.isJsonObject) return@mapNotNull null
+                val obj = element.asJsonObject
+                ActiveTool(
+                    eventId = optionalString(obj, "event_id") ?: "",
+                    toolId = optionalString(obj, "tool_id"),
+                    toolName = optionalString(obj, "tool_name"),
+                    kind = optionalString(obj, "kind") ?: "",
+                    content = optionalString(obj, "content") ?: "",
+                    startedAt = obj.get("started_at")?.asLong ?: 0L
+                )
+            }
+            ?: emptyList()
+
+        return ActiveTurn(
+            isActive = activeTurnObj.get("is_active")?.asBoolean ?: false,
+            status = optionalString(activeTurnObj, "status") ?: "idle",
+            pendingInputs = pendingInputs,
+            lastUserEventId = optionalString(activeTurnObj, "last_user_event_id"),
+            lastAssistantEventId = optionalString(activeTurnObj, "last_assistant_event_id"),
+            lastTerminalEventId = optionalString(activeTurnObj, "last_terminal_event_id"),
+            activeTools = activeTools,
+            textTail = optionalString(activeTurnObj, "text_tail") ?: "",
+            updatedAt = activeTurnObj.get("updated_at")?.asLong ?: 0L
+        )
+    }
+
     private fun parseOutputMetadata(metadataObj: JsonObject?): OutputMetadata {
         if (metadataObj == null) return OutputMetadata()
         return OutputMetadata(
+            sourceKind = optionalString(metadataObj, "sourceKind") ?: optionalString(metadataObj, "source_kind"),
+            terminality = optionalString(metadataObj, "terminality"),
+            fingerprint = optionalString(metadataObj, "fingerprint"),
             toolId = optionalString(metadataObj, "toolId"),
             toolName = optionalString(metadataObj, "toolName"),
             toolType = optionalString(metadataObj, "toolType"),

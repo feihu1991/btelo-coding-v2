@@ -221,6 +221,7 @@ class EnhancedWebSocketClient(
             is BteloMessage.NewMessage -> _messages.tryEmit(message)
             is BteloMessage.TranscriptSnapshot -> _messages.tryEmit(message)
             is BteloMessage.TranscriptDelta -> _messages.tryEmit(message)
+            is BteloMessage.ActiveTurnSnapshot -> _messages.tryEmit(message)
             is BteloMessage.InputStatus -> _messages.tryEmit(message)
             is BteloMessage.BridgeStatus -> _messages.tryEmit(message)
             is BteloMessage.SelectSession -> _messages.tryEmit(message)

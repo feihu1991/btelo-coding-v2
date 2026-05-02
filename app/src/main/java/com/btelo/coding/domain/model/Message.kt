@@ -28,6 +28,9 @@ data class Message(
  * Message metadata for structured output rendering
  */
 data class MessageMetadata(
+    val sourceKind: String? = null,
+    val terminality: String? = null,
+    val fingerprint: String? = null,
     val toolId: String? = null,
     val toolName: String? = null,
     val toolType: String? = null,

@@ -15,6 +15,7 @@ import com.btelo.coding.data.remote.websocket.factory.WebSocketClientFactory
 import com.btelo.coding.data.remote.websocket.factory.WebSocketConfig
 import com.btelo.coding.data.remote.websocket.factory.ReconnectConfig
 import com.btelo.coding.data.remote.websocket.factory.WebSocketEvent
+import com.btelo.coding.domain.model.ActiveTurnState
 import com.btelo.coding.domain.model.Message
 import com.btelo.coding.domain.model.MessageMetadata
 import com.btelo.coding.domain.model.MessageType
@@ -58,6 +59,9 @@ class MessageRepositoryImpl @Inject constructor(
     
     // Structured output flow for BTELO Coding v2
     private val _structuredOutputFlow = MutableSharedFlow<Message>(extraBufferCapacity = 64)
+
+    private val _activeTurnState = MutableStateFlow(ActiveTurnState.Idle)
+    override val activeTurnState: StateFlow<ActiveTurnState> = _activeTurnState.asStateFlow()
     
     override fun connect(serverAddress: String, token: String, sessionId: String) {
         _currentSessionId.value = sessionId
@@ -216,6 +220,14 @@ class MessageRepositoryImpl @Inject constructor(
                 }
             }
 
+            is BteloMessage.ActiveTurnSnapshot -> {
+                _activeTurnState.value = message.toActiveTurnState(sessionId)
+                Logger.d(
+                    tag,
+                    "Active turn snapshot: status=${message.activeTurn.status}, active=${message.activeTurn.isActive}"
+                )
+            }
+
             is BteloMessage.BridgeStatus -> {
                 Logger.i(
                     tag,
@@ -238,6 +250,9 @@ class MessageRepositoryImpl @Inject constructor(
 
                 val metadata = message.metadata.let { m ->
                     MessageMetadata(
+                        sourceKind = m.sourceKind,
+                        terminality = m.terminality,
+                        fingerprint = m.fingerprint,
                         toolId = m.toolId,
                         toolName = m.toolName,
                         toolType = m.toolType,
@@ -413,6 +428,9 @@ class MessageRepositoryImpl @Inject constructor(
 
     private fun OutputMetadata.toDomainMetadata(): MessageMetadata {
         return MessageMetadata(
+            sourceKind = sourceKind,
+            terminality = terminality,
+            fingerprint = fingerprint,
             toolId = toolId,
             toolName = toolName,
             toolType = toolType,
@@ -428,6 +446,24 @@ class MessageRepositoryImpl @Inject constructor(
             errorDetails = errorDetails
         )
     }
+
+    private fun BteloMessage.ActiveTurnSnapshot.toActiveTurnState(fallbackSessionId: String): ActiveTurnState {
+        val activeTool = activeTurn.activeTools.lastOrNull()
+        val pending = activeTurn.pendingInputs.lastOrNull()
+        return ActiveTurnState(
+            sessionId = sessionId.ifBlank { fallbackSessionId },
+            claudeSessionId = claudeSessionId,
+            workspaceRoot = workspaceRoot,
+            cursor = cursor,
+            isActive = activeTurn.isActive,
+            status = activeTurn.status,
+            pendingInputCount = activeTurn.pendingInputs.size,
+            pendingPreview = pending?.contentPreview.orEmpty(),
+            activeToolName = activeTool?.toolName ?: activeTool?.content,
+            textTail = activeTurn.textTail,
+            updatedAt = activeTurn.updatedAt
+        )
+    }
     
     override fun disconnect(sessionId: String) {
         webSocketFactory.destroy(sessionId)
@@ -435,6 +471,7 @@ class MessageRepositoryImpl @Inject constructor(
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         _currentSessionId.value = null
         _connectionState.value = ConnectionState.Disconnected
+        _activeTurnState.value = ActiveTurnState.Idle
         Logger.i(tag, "断开会话: $sessionId")
     }
     

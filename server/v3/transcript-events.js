@@ -1,4 +1,5 @@
 const fs = require('fs');
+const crypto = require('crypto');
 
 const PROTOCOL_VERSION = 3;
 
@@ -23,6 +24,35 @@ function timestampOf(entry) {
 
 function stableBaseId(entry, index) {
   return entry.uuid || entry.id || `${timestampOf(entry)}-${index}`;
+}
+
+function stableFingerprint(parts) {
+  return crypto
+    .createHash('sha256')
+    .update(parts.map((part) => String(part || '')).join('\u001f'))
+    .digest('hex')
+    .slice(0, 24);
+}
+
+function eventMetadata(entry, role, kind, extra = {}) {
+  const { content, ...metadataExtra } = extra;
+  const fingerprint = stableFingerprint([
+    entry.uuid || entry.id || '',
+    role,
+    kind,
+    metadataExtra.toolId || '',
+    metadataExtra.toolName || '',
+    metadataExtra.filePath || '',
+    metadataExtra.command || '',
+    content || ''
+  ]);
+
+  return {
+    sourceKind: 'transcript_jsonl',
+    terminality: role === 'user' || kind === 'text' || kind === 'error' ? 'terminal' : 'advisory',
+    fingerprint,
+    ...metadataExtra
+  };
 }
 
 function textFromContent(content) {
@@ -53,7 +83,7 @@ function eventFromBlock({ entry, baseId, block, blockIndex, seq }) {
       kind: 'text',
       content: block.text,
       timestamp,
-      metadata: {}
+      metadata: eventMetadata(entry, 'assistant', 'text', { content: block.text })
     };
   }
 
@@ -70,7 +100,7 @@ function eventFromBlock({ entry, baseId, block, blockIndex, seq }) {
       kind: isFileOp ? 'file_op' : 'tool_call',
       content: command || filePath || toolName,
       timestamp,
-      metadata: {
+      metadata: eventMetadata(entry, 'assistant', isFileOp ? 'file_op' : 'tool_call', {
         toolId: block.id || null,
         toolName,
         toolType: 'tool_use',
@@ -80,7 +110,7 @@ function eventFromBlock({ entry, baseId, block, blockIndex, seq }) {
         isFileOp,
         fileOpType: isFileOp ? String(toolName).toLowerCase() : null,
         isCollapsed: true
-      }
+      })
     };
   }
 
@@ -95,11 +125,11 @@ function eventFromBlock({ entry, baseId, block, blockIndex, seq }) {
       kind: 'system',
       content,
       timestamp,
-      metadata: {
+      metadata: eventMetadata(entry, 'assistant', 'system', {
         toolId: block.tool_use_id || null,
         isToolResult: true,
         isCollapsed: true
-      }
+      })
     };
   }
 
@@ -111,7 +141,7 @@ function eventFromBlock({ entry, baseId, block, blockIndex, seq }) {
       kind: 'thinking',
       content: block.thinking,
       timestamp,
-      metadata: {}
+      metadata: eventMetadata(entry, 'assistant', 'thinking', { content: block.thinking })
     };
   }
 
@@ -136,7 +166,7 @@ function parseTranscriptEntries(entries, { startSeq = 0 } = {}) {
           kind: 'text',
           content,
           timestamp,
-          metadata: {}
+          metadata: eventMetadata(entry, 'user', 'text', { content })
         });
       }
       return;
@@ -164,7 +194,7 @@ function parseTranscriptEntries(entries, { startSeq = 0 } = {}) {
         kind: entry.type === 'error' ? 'error' : 'system',
         content,
         timestamp,
-        metadata: {}
+        metadata: eventMetadata(entry, 'system', entry.type === 'error' ? 'error' : 'system', { content })
       });
     }
   });

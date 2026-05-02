@@ -1,6 +1,7 @@
 package com.btelo.coding.domain.repository
 
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
+import com.btelo.coding.domain.model.ActiveTurnState
 import com.btelo.coding.domain.model.Message
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,5 +26,6 @@ interface MessageRepository {
     
     fun disconnect(sessionId: String)
     val connectionState: StateFlow<ConnectionState>
+    val activeTurnState: StateFlow<ActiveTurnState>
     suspend fun cleanOldMessages(sessionId: String, keepDays: Int = 30)
 }

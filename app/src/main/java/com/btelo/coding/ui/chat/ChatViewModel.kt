@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.data.remote.websocket.OutputType
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
+import com.btelo.coding.domain.model.ActiveTurnState
 import com.btelo.coding.domain.model.Message
 import com.btelo.coding.domain.model.MessageMetadata
 import com.btelo.coding.domain.model.MessageType
@@ -120,6 +121,7 @@ class ChatViewModel @Inject constructor(
         observeConnectionState()
         observeSession()
         observeStructuredOutput()
+        observeActiveTurn()
     }
 
     private fun observeMessages() {
@@ -185,6 +187,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private fun observeActiveTurn() {
+        coroutineJobs += viewModelScope.launch {
+            messageRepository.activeTurnState.collect { activeTurn ->
+                if (activeTurn.sessionId.isNotBlank() && activeTurn.sessionId != sessionId) return@collect
+
+                if (activeTurn.isActive) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = true,
+                        isStreaming = true,
+                        streamingContent = activeTurn.textTail.ifBlank { "..." },
+                        thinkingSession = ThinkingSession(
+                            isActive = true,
+                            currentMessage = activeTurn.displayLabel()
+                        )
+                    )
+                } else if (_uiState.value.isStreaming || _uiState.value.isLoading) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        isStreaming = false,
+                        streamingContent = "",
+                        thinkingSession = ThinkingSession()
+                    )
+                }
+            }
+        }
+    }
+
     private fun processStructuredOutput(message: Message) {
         val outputType = message.outputType ?: return
 
@@ -231,6 +260,20 @@ class ChatViewModel @Inject constructor(
                 currentMessage = currentMessage
             )
         )
+    }
+
+    private fun ActiveTurnState.displayLabel(): String {
+        return when (status) {
+            "input_pending" -> when {
+                pendingInputCount > 1 -> "Waiting for $pendingInputCount queued phone inputs"
+                pendingPreview.isNotBlank() -> "Waiting for transcript confirmation"
+                else -> "Waiting for Claude Code"
+            }
+            "waiting_for_assistant" -> "Waiting for Claude Code"
+            "tool_activity" -> "Running ${activeToolName ?: "tool"}"
+            "assistant_activity" -> "Claude Code is responding"
+            else -> "Syncing Claude Code state"
+        }
     }
 
     fun onImageSelected(uri: String) {

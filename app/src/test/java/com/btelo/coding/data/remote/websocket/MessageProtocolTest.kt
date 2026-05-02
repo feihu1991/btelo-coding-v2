@@ -238,4 +238,95 @@ class MessageProtocolTest {
         assertEquals(original.claudeSessionId, delta.claudeSessionId)
         assertEquals("Done", delta.events.single().content)
     }
+
+    @Test
+    fun `deserialize active turn snapshot should parse reconnect state without history writes`() {
+        val json = """
+            {
+              "type": "active_turn_snapshot",
+              "version": 3,
+              "session_id": "relay-1",
+              "claude_session_id": "claude-1",
+              "workspace_root": "C:/workspace/project",
+              "cursor": 7,
+              "active_turn": {
+                "is_active": true,
+                "status": "tool_activity",
+                "pending_inputs": [
+                  {
+                    "client_message_id": "phone-1",
+                    "content_preview": "fix tests",
+                    "status": "injected",
+                    "created_at": 1710000000000,
+                    "updated_at": 1710000000100
+                  }
+                ],
+                "last_user_event_id": "u-1",
+                "last_assistant_event_id": "a-2",
+                "last_terminal_event_id": "u-1",
+                "active_tools": [
+                  {
+                    "event_id": "a-2",
+                    "tool_id": "toolu_1",
+                    "tool_name": "Bash",
+                    "kind": "tool_call",
+                    "content": "npm test",
+                    "started_at": 1710000000200
+                  }
+                ],
+                "text_tail": "running",
+                "updated_at": 1710000000300
+              }
+            }
+        """.trimIndent()
+
+        val message = protocol.deserialize(json)
+
+        assertNotNull(message)
+        assertTrue(message is BteloMessage.ActiveTurnSnapshot)
+        val snapshot = message as BteloMessage.ActiveTurnSnapshot
+        assertEquals("relay-1", snapshot.sessionId)
+        assertEquals("claude-1", snapshot.claudeSessionId)
+        assertEquals("C:/workspace/project", snapshot.workspaceRoot)
+        assertEquals(7, snapshot.cursor)
+        assertTrue(snapshot.activeTurn.isActive)
+        assertEquals("tool_activity", snapshot.activeTurn.status)
+        assertEquals("phone-1", snapshot.activeTurn.pendingInputs.single().clientMessageId)
+        assertEquals("Bash", snapshot.activeTurn.activeTools.single().toolName)
+        assertEquals("running", snapshot.activeTurn.textTail)
+    }
+
+    @Test
+    fun `deserialize transcript event metadata should preserve source terminality and fingerprint`() {
+        val json = """
+            {
+              "type": "transcript_delta",
+              "version": 3,
+              "session_id": "relay-1",
+              "claude_session_id": "claude-1",
+              "cursor": 1,
+              "events": [
+                {
+                  "id": "a-1",
+                  "seq": 1,
+                  "role": "assistant",
+                  "kind": "text",
+                  "content": "Done",
+                  "timestamp": 1710000000000,
+                  "metadata": {
+                    "sourceKind": "transcript_jsonl",
+                    "terminality": "terminal",
+                    "fingerprint": "abc123"
+                  }
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val message = protocol.deserialize(json) as BteloMessage.TranscriptDelta
+
+        assertEquals("transcript_jsonl", message.events.single().metadata.sourceKind)
+        assertEquals("terminal", message.events.single().metadata.terminality)
+        assertEquals("abc123", message.events.single().metadata.fingerprint)
+    }
 }
