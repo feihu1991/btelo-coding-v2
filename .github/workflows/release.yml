@@ -31,6 +31,9 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    - name: Use official Gradle distribution
+      run: sed -i 's|https://mirrors.cloud.tencent.com/gradle/|https://services.gradle.org/distributions/|' gradle/wrapper/gradle-wrapper.properties
+
     - name: Verify signing secrets
       run: |
         test -n "${{ secrets.BTELO_UPLOAD_KEYSTORE_BASE64 }}" || (echo "Missing BTELO_UPLOAD_KEYSTORE_BASE64" && exit 1)
