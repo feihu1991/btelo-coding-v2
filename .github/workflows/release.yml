@@ -22,14 +22,29 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
+    - name: Verify signing secrets
+      run: |
+        test -n "${{ secrets.BTELO_UPLOAD_KEYSTORE_BASE64 }}" || (echo "Missing BTELO_UPLOAD_KEYSTORE_BASE64" && exit 1)
+        test -n "${{ secrets.BTELO_UPLOAD_STORE_PASSWORD }}" || (echo "Missing BTELO_UPLOAD_STORE_PASSWORD" && exit 1)
+        test -n "${{ secrets.BTELO_UPLOAD_KEY_PASSWORD }}" || (echo "Missing BTELO_UPLOAD_KEY_PASSWORD" && exit 1)
+        test -n "${{ secrets.BTELO_UPLOAD_KEY_ALIAS }}" || (echo "Missing BTELO_UPLOAD_KEY_ALIAS" && exit 1)
+
     - name: Build Release APK
       run: ./gradlew assembleRelease
+      env:
+        BTELO_UPLOAD_KEYSTORE_BASE64: ${{ secrets.BTELO_UPLOAD_KEYSTORE_BASE64 }}
+        BTELO_UPLOAD_STORE_PASSWORD: ${{ secrets.BTELO_UPLOAD_STORE_PASSWORD }}
+        BTELO_UPLOAD_KEY_PASSWORD: ${{ secrets.BTELO_UPLOAD_KEY_PASSWORD }}
+        BTELO_UPLOAD_KEY_ALIAS: ${{ secrets.BTELO_UPLOAD_KEY_ALIAS }}
 
     - name: Get version
       id: get_version
@@ -41,16 +56,14 @@ jobs:
         name: Yami-Coding ${{ steps.get_version.outputs.VERSION }}
         body: |
           ## Yami-Coding Android ${{ steps.get_version.outputs.VERSION }}
-          
-          ### 安装方法
-          1. 下载 `Yami-Coding-${{ steps.get_version.outputs.VERSION }}.apk`
-          2. 在 Android 设备上安装
-          
-          ### 功能特性
-          - WebSocket 远程连接
-          - 端到端加密通信
-          - 设备配对
-          - AI 终端交互
+
+          ### Install
+          Open BTELO Coding on Android and tap **Check updates**. The app downloads this APK in-app and opens the Android installer.
+
+          ### Notes
+          - Signed with the configured BTELO upload key.
+          - Android can only update over an existing install when the signing certificate matches.
+          - If Android reports a signature mismatch, uninstall the old build once, then install this release build.
         files: |
           app/build/outputs/apk/release/*.apk
         draft: false

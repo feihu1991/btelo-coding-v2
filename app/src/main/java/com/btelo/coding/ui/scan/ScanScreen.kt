@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -67,13 +68,18 @@ import com.btelo.coding.ui.theme.TextOnBubble
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
 import com.btelo.coding.ui.theme.TextTertiary
+import com.btelo.coding.ui.update.UpdateDialog
+import com.btelo.coding.ui.update.UpdateViewModel
 
 @Composable
 fun ScanScreen(
     onConnected: (String) -> Unit,
-    viewModel: ScanViewModel = hiltViewModel()
+    viewModel: ScanViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val updateState by updateViewModel.uiState.collectAsState()
+    val availableUpdate = updateState.updateInfo
 
     var showAuthDialog by remember { mutableStateOf(false) }
     var authBridgeId by remember { mutableStateOf("") }
@@ -85,6 +91,17 @@ fun ScanScreen(
             onConnected(uiState.sessionId!!)
         }
     }
+
+    LaunchedEffect(Unit) {
+        updateViewModel.checkOnLaunch()
+    }
+
+    UpdateDialog(
+        state = updateState,
+        onInstall = updateViewModel::downloadAndInstall,
+        onRetryInstall = updateViewModel::installDownloaded,
+        onDismiss = updateViewModel::dismissUpdate
+    )
 
     Box(
         modifier = Modifier
@@ -241,6 +258,32 @@ fun ScanScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            Button(
+                onClick = { updateViewModel.checkForUpdate(showNoUpdateMessage = true) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = CardSurface)
+            ) {
+                Icon(
+                    Icons.Default.SystemUpdate,
+                    contentDescription = null,
+                    tint = if (updateState.updateInfo != null) BubbleGradientStart else TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = when {
+                        updateState.isChecking -> "Checking update..."
+                        availableUpdate != null -> "Update ${availableUpdate.versionName} available"
+                        else -> "Check updates"
+                    },
+                    color = TextPrimary,
+                    fontSize = 14.sp
+                )
+            }
 
             // Error message
             uiState.error?.let { error ->

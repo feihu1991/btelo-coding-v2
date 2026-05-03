@@ -211,7 +211,9 @@ class PtyBridge {
       workDir: opts.workDir,
       outputBuffer: '',
       isProcessing: false,
-      commandQueue: []
+      commandQueue: [],
+      readyForInput: false,
+      pendingInput: []
     };
     
     // Output parser for structured messages
@@ -338,6 +340,7 @@ class PtyBridge {
     });
     
     console.log('[PTY] PTY started with PID:', this.state.ptyProcess.pid);
+    setTimeout(() => this.flushPendingInput(), 900);
   }
   
   /**
@@ -405,6 +408,8 @@ class PtyBridge {
       console.error('[SPAWN] Failed to start Claude:', err.message);
       this.sendRawOutput(`Error: ${err.message}\n`, 'STDERR');
     });
+
+    setTimeout(() => this.flushPendingInput(), 900);
   }
   
   /**
@@ -428,12 +433,32 @@ class PtyBridge {
    * Write to PTY (simulate keyboard input)
    */
   writeToPty(text) {
+    if (!this.state.readyForInput) {
+      this.state.pendingInput.push(text);
+      console.log('[PTY] Queued early input:', text.substring(0, 50));
+      return;
+    }
+
     if (this.state.ptyProcess) {
       this.state.ptyProcess.write(text);
       console.log('[PTY] Written:', text.substring(0, 50));
     } else if (this.state.claudeProcess && this.state.claudeProcess.stdin) {
       this.state.claudeProcess.stdin.write(text);
       console.log('[SPAWN] Written:', text.substring(0, 50));
+    }
+  }
+
+  flushPendingInput() {
+    this.state.readyForInput = true;
+    while (this.state.pendingInput.length > 0) {
+      const text = this.state.pendingInput.shift();
+      if (this.state.ptyProcess) {
+        this.state.ptyProcess.write(text);
+        console.log('[PTY] Flushed queued input:', text.substring(0, 50));
+      } else if (this.state.claudeProcess && this.state.claudeProcess.stdin) {
+        this.state.claudeProcess.stdin.write(text);
+        console.log('[SPAWN] Flushed queued input:', text.substring(0, 50));
+      }
     }
   }
   
@@ -473,11 +498,13 @@ class PtyBridge {
       '--dangerously-skip-permissions'
     ];
     
-    console.log('[PTY] Executing:', args.join(' '));
+    const claudeInfo = detectClaudeCode();
+    const claudePath = claudeInfo.path || 'claude';
+    console.log('[PTY] Executing:', claudePath, args.map(a => JSON.stringify(a)).join(' '));
     
-    const child = spawn('claude', args, {
+    const child = spawn(claudePath, args, {
       cwd: this.state.workDir,
-      shell: true,
+      shell: false,
       stdio: ['ignore', 'pipe', 'pipe']
     });
     

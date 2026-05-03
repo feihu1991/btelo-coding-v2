@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,6 +7,8 @@ plugins {
     id("com.google.gms.google-services")
     kotlin("kapt")
 }
+
+var hasUploadSigning = false
 
 android {
     namespace = "com.btelo.coding"
@@ -14,8 +18,8 @@ android {
         applicationId = "com.btelo.coding"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0-mvp"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -23,10 +27,49 @@ android {
         }
     }
 
+    signingConfigs {
+        create("upload") {
+            val encodedKeystore = System.getenv("BTELO_UPLOAD_KEYSTORE_BASE64")
+            val localKeystore = rootProject.file("btelo-upload.jks")
+            val storePasswordValue = System.getenv("BTELO_UPLOAD_STORE_PASSWORD")
+            val keyPasswordValue = System.getenv("BTELO_UPLOAD_KEY_PASSWORD")
+            val keyAliasValue = System.getenv("BTELO_UPLOAD_KEY_ALIAS")
+
+            val keystoreFile = when {
+                !encodedKeystore.isNullOrBlank() -> {
+                    val decoded = Base64.getDecoder().decode(encodedKeystore)
+                    layout.buildDirectory.file("signing/btelo-upload.jks").get().asFile.apply {
+                        parentFile.mkdirs()
+                        writeBytes(decoded)
+                    }
+                }
+                localKeystore.exists() -> localKeystore
+                else -> null
+            }
+
+            if (
+                keystoreFile != null &&
+                !storePasswordValue.isNullOrBlank() &&
+                !keyPasswordValue.isNullOrBlank() &&
+                !keyAliasValue.isNullOrBlank()
+            ) {
+                storeFile = keystoreFile
+                storePassword = storePasswordValue
+                keyPassword = keyPasswordValue
+                keyAlias = keyAliasValue
+                hasUploadSigning = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasUploadSigning) {
+                signingConfigs.getByName("upload")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -45,6 +88,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {

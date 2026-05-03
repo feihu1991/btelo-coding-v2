@@ -3,8 +3,8 @@ package com.btelo.coding.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelo.coding.data.local.DataStoreManager
-import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.data.remote.websocket.OutputType
+import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.domain.model.Message
 import com.btelo.coding.domain.model.MessageMetadata
 import com.btelo.coding.domain.model.MessageType
@@ -30,11 +30,11 @@ data class ThinkingMessage(
 )
 
 enum class ThinkingMessageType {
-    THINKING,    // 思考过程
-    TOOL_CALL,   // 工具调用
-    FILE_OP,     // 文件操作
-    ERROR,       // 错误信息
-    SYSTEM       // 系统消息
+    THINKING,
+    TOOL_CALL,
+    FILE_OP,
+    ERROR,
+    SYSTEM
 }
 
 data class ThinkingSession(
@@ -60,8 +60,6 @@ data class ChatUiState(
     val sessionName: String = "Claude Code",
     val selectedImageUri: String = "",
     val thinkingSession: ThinkingSession = ThinkingSession(),
-
-    // Structured output state
     val structuredOutputBuffer: StructuredOutputBuffer = StructuredOutputBuffer()
 )
 
@@ -93,7 +91,6 @@ class ChatViewModel @Inject constructor(
 
     fun setSessionId(id: String) {
         val effectiveId = if (id.isBlank()) {
-            // Fallback: try DataStore directly for the session ID
             val saved = dataStoreManager.getSessionIdSync()
             Logger.w("ChatVM", "setSessionId called with blank id, fallback from store: $saved")
             saved ?: return
@@ -102,12 +99,13 @@ class ChatViewModel @Inject constructor(
         }
 
         if (effectiveId.isBlank()) return
+        if (sessionId == effectiveId && coroutineJobs.isNotEmpty()) return
         sessionId = effectiveId
 
         val job = viewModelScope.launch {
             sessionRepository.createSessionWithId(effectiveId, "Claude Code", "claude")
 
-            val serverAddress = authRepository.getServerAddress().firstOrNull() ?: ""
+            val serverAddress = authRepository.getServerAddress().firstOrNull().orEmpty()
             val wsToken = dataStoreManager.getWsTokenSync()
             val authToken = dataStoreManager.getTokenSync()
             val token = wsToken ?: authToken ?: ""
@@ -119,6 +117,8 @@ class ChatViewModel @Inject constructor(
         loadMessages()
         observeConnectionState()
         observeSession()
+        observeOutput()
+        observeStructuredOutput()
     }
 
     private fun loadMessages() {
@@ -130,7 +130,7 @@ class ChatViewModel @Inject constructor(
                     !latestMessage.isFromUser &&
                     (currentState.isLoading || currentState.isStreaming || currentState.thinkingSession.isActive)
 
-                _uiState.value = _uiState.value.copy(
+                _uiState.value = currentState.copy(
                     messages = messages,
                     isLoading = if (shouldClearPending) false else currentState.isLoading,
                     isStreaming = if (shouldClearPending) false else currentState.isStreaming,
@@ -146,7 +146,7 @@ class ChatViewModel @Inject constructor(
         val job = viewModelScope.launch {
             messageRepository.observeOutput(sessionId).collect { message ->
                 val current = _uiState.value.streamingContent
-                val newContent = if (current.isEmpty()) {
+                val newContent = if (current.isEmpty() || current == "...") {
                     message.content
                 } else {
                     current + message.content
@@ -181,7 +181,6 @@ class ChatViewModel @Inject constructor(
         val currentSession = _uiState.value.thinkingSession
         val outputType = structuredMsg.outputType
 
-        // Start thinking session on first THINKING message
         if (outputType == DomainOutputType.THINKING && !currentSession.isActive) {
             val thinkingMsg = ThinkingMessage(
                 type = ThinkingMessageType.THINKING,
@@ -192,15 +191,14 @@ class ChatViewModel @Inject constructor(
                     isActive = true,
                     messages = listOf(thinkingMsg),
                     currentMessageType = ThinkingMessageType.THINKING,
-                    currentMessage = "深度思考中…"
+                    currentMessage = "Thinking"
                 ),
                 isStreaming = true,
-                streamingContent = "…"
+                streamingContent = "..."
             )
             return
         }
 
-        // Add messages to active thinking session
         if (currentSession.isActive && outputType != DomainOutputType.CLAUDE_RESPONSE) {
             val thinkingType = when (outputType) {
                 DomainOutputType.THINKING -> ThinkingMessageType.THINKING
@@ -217,11 +215,11 @@ class ChatViewModel @Inject constructor(
                     content = structuredMsg.content
                 )
                 val currentMessage = when (thinkingType) {
-                    ThinkingMessageType.TOOL_CALL -> "调用 ${structuredMsg.metadata?.toolName ?: structuredMsg.content}..."
-                    ThinkingMessageType.FILE_OP -> "文件操作: ${structuredMsg.metadata?.fileOpType ?: ""}"
-                    ThinkingMessageType.THINKING -> "深度思考中…"
-                    ThinkingMessageType.ERROR -> "发生错误"
-                    ThinkingMessageType.SYSTEM -> "系统消息"
+                    ThinkingMessageType.TOOL_CALL -> "Running ${structuredMsg.metadata?.toolName ?: "tool"}"
+                    ThinkingMessageType.FILE_OP -> "File ${structuredMsg.metadata?.fileOpType ?: "operation"}"
+                    ThinkingMessageType.THINKING -> "Thinking"
+                    ThinkingMessageType.ERROR -> "Error"
+                    ThinkingMessageType.SYSTEM -> "System"
                 }
                 _uiState.value = _uiState.value.copy(
                     thinkingSession = currentSession.copy(
@@ -234,17 +232,15 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // Text response (CLAUDE_RESPONSE): finalize thinking session
         if (currentSession.isActive && outputType == DomainOutputType.CLAUDE_RESPONSE) {
-            // Save consolidated thinking message to DB
             if (currentSession.messages.isNotEmpty()) {
                 val thinkingContent = currentSession.messages
                     .filter { it.type == ThinkingMessageType.THINKING }
                     .joinToString("\n") { it.content }
-                    .ifEmpty { "深度思考" }
+                    .ifEmpty { "Thinking" }
 
                 val toolNames = currentSession.messages
-                    .filter { it.type == ThinkingMessageType.TOOL_CALL }
+                    .filter { it.type == ThinkingMessageType.TOOL_CALL || it.type == ThinkingMessageType.FILE_OP }
                     .map { it.content }
 
                 val thinkingMsg = Message(
@@ -263,7 +259,6 @@ class ChatViewModel @Inject constructor(
                 viewModelScope.launch { messageRepository.saveMessage(thinkingMsg) }
             }
 
-            // Reset thinking session and set streaming content for Claude's response
             _uiState.value = _uiState.value.copy(
                 thinkingSession = ThinkingSession(),
                 isStreaming = true,
@@ -272,7 +267,6 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // Fallback: buffer non-thinking structured outputs
         val currentBuffer = _uiState.value.structuredOutputBuffer
         val newPart = StructuredPart(
             outputType = structuredMsg.outputType?.let {
@@ -283,7 +277,6 @@ class ChatViewModel @Inject constructor(
                     DomainOutputType.THINKING -> OutputType.THINKING
                     DomainOutputType.ERROR -> OutputType.ERROR
                     DomainOutputType.SYSTEM -> OutputType.SYSTEM
-                    else -> OutputType.CLAUDE_RESPONSE
                 }
             } ?: OutputType.CLAUDE_RESPONSE,
             content = structuredMsg.content,
@@ -291,37 +284,35 @@ class ChatViewModel @Inject constructor(
         )
 
         val isComplete = newPart.outputType == OutputType.CLAUDE_RESPONSE &&
-                         !currentBuffer.messageId.isEmpty()
+            currentBuffer.messageId.isNotEmpty()
 
         if (isComplete) {
-            val finalMessage = buildStructuredMessage(currentBuffer.copy(
-                parts = currentBuffer.parts + newPart,
-                isComplete = true
-            ))
-            
+            val finalMessage = buildStructuredMessage(
+                currentBuffer.copy(
+                    parts = currentBuffer.parts + newPart,
+                    isComplete = true
+                )
+            )
+
             viewModelScope.launch {
                 messageRepository.saveMessage(finalMessage)
             }
-            
+
             _uiState.value = _uiState.value.copy(
                 structuredOutputBuffer = StructuredOutputBuffer(),
                 streamingContent = "",
                 isStreaming = false
             )
         } else {
-            val newMessageId = if (currentBuffer.messageId.isEmpty()) {
-                "struct-${System.currentTimeMillis()}"
-            } else {
-                currentBuffer.messageId
-            }
-            
+            val newMessageId = currentBuffer.messageId.ifEmpty { "struct-${System.currentTimeMillis()}" }
+
             _uiState.value = _uiState.value.copy(
                 structuredOutputBuffer = currentBuffer.copy(
                     messageId = newMessageId,
                     parts = currentBuffer.parts + newPart,
                     isComplete = isComplete
                 ),
-                streamingContent = if (newPart.outputType == OutputType.THINKING) "…" else structuredMsg.content,
+                streamingContent = if (newPart.outputType == OutputType.THINKING) "..." else structuredMsg.content,
                 isStreaming = true
             )
         }
@@ -334,7 +325,7 @@ class ChatViewModel @Inject constructor(
         val toolCallPart = parts.find { it.outputType == OutputType.TOOL_CALL }
         val metadata = toolCallPart?.metadata ?: MessageMetadata()
         val thinkingPart = parts.find { it.outputType == OutputType.THINKING }
-        
+
         val domainOutputType = when (primaryType) {
             OutputType.CLAUDE_RESPONSE -> DomainOutputType.CLAUDE_RESPONSE
             OutputType.TOOL_CALL -> DomainOutputType.TOOL_CALL
@@ -342,14 +333,13 @@ class ChatViewModel @Inject constructor(
             OutputType.THINKING -> DomainOutputType.THINKING
             OutputType.ERROR -> DomainOutputType.ERROR
             OutputType.SYSTEM -> DomainOutputType.SYSTEM
-            else -> DomainOutputType.CLAUDE_RESPONSE
         }
-        
+
         return Message(
             id = buffer.messageId,
             sessionId = sessionId,
             content = content,
-            type = com.btelo.coding.domain.model.MessageType.OUTPUT,
+            type = MessageType.OUTPUT,
             timestamp = System.currentTimeMillis(),
             isFromUser = false,
             outputType = domainOutputType,
@@ -415,8 +405,6 @@ class ChatViewModel @Inject constructor(
         val content = _uiState.value.inputText.trim()
         if (content.isBlank()) return
 
-        // Keep the input as pending UI only. The confirmed user message comes
-        // from Claude's transcript so phone and terminal share one source.
         _uiState.value = _uiState.value.copy(
             isLoading = true,
             inputText = "",
@@ -424,10 +412,10 @@ class ChatViewModel @Inject constructor(
                 isActive = true,
                 messages = emptyList(),
                 currentMessageType = null,
-                currentMessage = "等待响应…"
+                currentMessage = "Waiting for Claude"
             ),
             isStreaming = true,
-            streamingContent = "…",
+            streamingContent = "...",
             structuredOutputBuffer = StructuredOutputBuffer()
         )
 
@@ -456,7 +444,7 @@ class ChatViewModel @Inject constructor(
                 messageRepository.saveMessage(finalMessage)
             }
         }
-        
+
         _uiState.value = _uiState.value.copy(
             streamingContent = "",
             isStreaming = false,
@@ -479,9 +467,7 @@ class ChatViewModel @Inject constructor(
             messageRepository.disconnect(sessionId)
             dataStoreManager.clearConnection()
             coroutineJobs.forEach { job ->
-                if (job.isActive) {
-                    job.cancel()
-                }
+                if (job.isActive) job.cancel()
             }
             coroutineJobs.clear()
         }
@@ -490,9 +476,7 @@ class ChatViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         coroutineJobs.forEach { job ->
-            if (job.isActive) {
-                job.cancel()
-            }
+            if (job.isActive) job.cancel()
         }
         coroutineJobs.clear()
     }
