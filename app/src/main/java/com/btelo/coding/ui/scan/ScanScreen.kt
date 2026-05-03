@@ -121,6 +121,7 @@ fun ScanScreen(
     UpdateDialog(
         state = updateState,
         onInstall = updateViewModel::downloadAndInstall,
+        onOpenInstallSettings = updateViewModel::openInstallSettings,
         onRetryInstall = updateViewModel::installDownloaded,
         onDismiss = updateViewModel::dismissUpdate
     )
@@ -175,6 +176,18 @@ fun ScanScreen(
                             else -> "Check updates"
                         },
                         color = TextPrimary
+                    )
+                }
+            }
+
+            if (updateState.downloadedApk != null && availableUpdate != null) {
+                item {
+                    UpdateReadyCard(
+                        versionName = availableUpdate.versionName,
+                        apkName = availableUpdate.apkName,
+                        needsInstallPermission = updateState.needsInstallPermission,
+                        onInstall = updateViewModel::installDownloaded,
+                        onOpenInstallSettings = updateViewModel::openInstallSettings
                     )
                 }
             }
@@ -437,6 +450,66 @@ private fun ErrorCard(
             )
             IconButton(onClick = onDismiss) {
                 Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = RedError)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateReadyCard(
+    versionName: String,
+    apkName: String,
+    needsInstallPermission: Boolean,
+    onInstall: () -> Unit,
+    onOpenInstallSettings: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = BubbleGradientStart.copy(alpha = 0.14f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.SystemUpdate,
+                    contentDescription = null,
+                    tint = BubbleGradientStart,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Update $versionName is ready",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (needsInstallPermission) {
+                            "Allow installs for BTELO Coding, then finish installing $apkName."
+                        } else {
+                            "The APK is already on this phone. You can install it whenever you are ready."
+                        },
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Button(
+                onClick = if (needsInstallPermission) onOpenInstallSettings else onInstall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BubbleGradientStart)
+            ) {
+                Text(
+                    text = if (needsInstallPermission) "Open install settings" else "Install update",
+                    color = TextOnBubble,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }

@@ -37,6 +37,11 @@ sealed class UpdateCheckResult {
     object NotAvailable : UpdateCheckResult()
 }
 
+enum class InstallLaunchResult {
+    Started,
+    PermissionRequired
+}
+
 @Singleton
 class AppUpdateManager @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -176,16 +181,25 @@ class AppUpdateManager @Inject constructor(
         }
     }
 
-    fun installApk(apkFile: File) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
-            val settingsIntent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}")
-            ).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(settingsIntent)
-            return
+    fun canInstallPackageUpdates(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            context.packageManager.canRequestPackageInstalls()
+    }
+
+    fun openInstallPermissionSettings() {
+        val settingsIntent = Intent(
+            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:${context.packageName}")
+        ).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(settingsIntent)
+    }
+
+    fun installApk(apkFile: File): InstallLaunchResult {
+        if (!canInstallPackageUpdates()) {
+            openInstallPermissionSettings()
+            return InstallLaunchResult.PermissionRequired
         }
 
         val apkUri = FileProvider.getUriForFile(
@@ -200,6 +214,7 @@ class AppUpdateManager @Inject constructor(
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(installIntent)
+        return InstallLaunchResult.Started
     }
 
     private fun isOnUnmeteredConnection(): Boolean {

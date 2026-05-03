@@ -125,6 +125,7 @@ fun ChatScreen(
     UpdateDialog(
         state = updateState,
         onInstall = updateViewModel::downloadAndInstall,
+        onOpenInstallSettings = updateViewModel::openInstallSettings,
         onRetryInstall = updateViewModel::installDownloaded,
         onDismiss = updateViewModel::dismissUpdate
     )

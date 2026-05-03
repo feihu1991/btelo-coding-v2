@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelo.coding.BuildConfig
 import com.btelo.coding.data.update.AppUpdateManager
+import com.btelo.coding.data.update.InstallLaunchResult
 import com.btelo.coding.data.update.UpdateCheckResult
 import com.btelo.coding.data.update.UpdateInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,6 +21,7 @@ data class UpdateUiState(
     val downloadProgress: Float = 0f,
     val updateInfo: UpdateInfo? = null,
     val downloadedApk: File? = null,
+    val needsInstallPermission: Boolean = false,
     val message: String? = null,
     val error: String? = null,
     val currentVersion: String = BuildConfig.VERSION_NAME
@@ -49,6 +51,7 @@ class UpdateViewModel @Inject constructor(
                         _uiState.value = _uiState.value.copy(
                             updateInfo = restored.first,
                             downloadedApk = restored.second,
+                            needsInstallPermission = !updateManager.canInstallPackageUpdates(),
                             message = "Update ${restored.first.versionName} is ready to install"
                         )
                     }
@@ -68,6 +71,7 @@ class UpdateViewModel @Inject constructor(
                             _uiState.value = _uiState.value.copy(
                                 updateInfo = result.info,
                                 downloadedApk = prepared,
+                                needsInstallPermission = !updateManager.canInstallPackageUpdates(),
                                 message = "Update ${result.info.versionName} is ready to install"
                             )
                         }
@@ -97,6 +101,8 @@ class UpdateViewModel @Inject constructor(
                                 isChecking = false,
                                 updateInfo = result.info,
                                 downloadedApk = downloadedApk,
+                                needsInstallPermission = downloadedApk != null &&
+                                    !updateManager.canInstallPackageUpdates(),
                                 message = if (downloadedApk != null) {
                                     "Update ${result.info.versionName} is ready to install"
                                 } else {
@@ -139,12 +145,17 @@ class UpdateViewModel @Inject constructor(
                 }
             }
                 .onSuccess { apk ->
+                    val installResult = updateManager.installApk(apk)
                     _uiState.value = _uiState.value.copy(
                         isDownloading = false,
                         downloadedApk = apk,
-                        message = "Download complete"
+                        needsInstallPermission = installResult == InstallLaunchResult.PermissionRequired,
+                        message = if (installResult == InstallLaunchResult.PermissionRequired) {
+                            "Allow installs for BTELO Coding, then tap install again"
+                        } else {
+                            "Download complete"
+                        }
                     )
-                    updateManager.installApk(apk)
                 }
                 .onFailure { error ->
                     _uiState.value = _uiState.value.copy(
@@ -156,7 +167,25 @@ class UpdateViewModel @Inject constructor(
     }
 
     fun installDownloaded() {
-        _uiState.value.downloadedApk?.let { updateManager.installApk(it) }
+        _uiState.value.downloadedApk?.let { apk ->
+            val result = updateManager.installApk(apk)
+            _uiState.value = _uiState.value.copy(
+                needsInstallPermission = result == InstallLaunchResult.PermissionRequired,
+                message = if (result == InstallLaunchResult.PermissionRequired) {
+                    "Allow installs for BTELO Coding, then tap install again"
+                } else {
+                    "Opening Android installer"
+                }
+            )
+        }
+    }
+
+    fun openInstallSettings() {
+        updateManager.openInstallPermissionSettings()
+        _uiState.value = _uiState.value.copy(
+            needsInstallPermission = !updateManager.canInstallPackageUpdates(),
+            message = "Enable install permission, then return here to finish the update"
+        )
     }
 
     fun dismissUpdate() {

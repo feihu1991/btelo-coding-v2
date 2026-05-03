@@ -21,6 +21,7 @@ import com.btelo.coding.ui.theme.TextSecondary
 fun UpdateDialog(
     state: UpdateUiState,
     onInstall: () -> Unit,
+    onOpenInstallSettings: () -> Unit,
     onRetryInstall: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -49,9 +50,16 @@ fun UpdateDialog(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "${info.apkName} · $sizeText",
+                    text = "${info.apkName} • $sizeText",
                     color = TextSecondary
                 )
+                if (state.downloadedApk != null && state.needsInstallPermission) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "Android is blocking installs for BTELO Coding. Allow install permission first, then return here to finish the update.",
+                        color = TextSecondary
+                    )
+                }
                 if (state.isDownloading) {
                     Spacer(Modifier.height(14.dp))
                     LinearProgressIndicator(
@@ -74,12 +82,20 @@ fun UpdateDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    if (state.downloadedApk != null) onRetryInstall() else onInstall()
+                    when {
+                        state.downloadedApk != null && state.needsInstallPermission -> onOpenInstallSettings()
+                        state.downloadedApk != null -> onRetryInstall()
+                        else -> onInstall()
+                    }
                 },
                 enabled = !state.isDownloading && !state.isChecking
             ) {
                 Text(
-                    text = if (state.downloadedApk != null) "Install" else "Download and install",
+                    text = when {
+                        state.downloadedApk != null && state.needsInstallPermission -> "Open settings"
+                        state.downloadedApk != null -> "Install"
+                        else -> "Download and install"
+                    },
                     color = BubbleGradientStart
                 )
             }
