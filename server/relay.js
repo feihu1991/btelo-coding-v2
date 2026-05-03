@@ -621,32 +621,53 @@ setInterval(() => {
 // ============================================================
 // Start server
 // ============================================================
-const PORT = process.env.PORT || 8080;
+const BASE_PORT = parseInt(process.env.PORT, 10) || 8080;
 const localIP = getLocalIP();
 
-server.listen(PORT, '0.0.0.0', () => {
-  const lanIP = getLanIP();
-  const hasPublicIP = process.env.PUBLIC_IP && process.env.PUBLIC_IP !== lanIP;
+function probePort(port) {
+  return new Promise((resolve) => {
+    const probe = require('net').createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(port, '0.0.0.0', () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
 
-  console.log('');
-  console.log('='.repeat(50));
-  console.log('  BTELO Coding Relay Server v2.0.0');
-  console.log('='.repeat(50));
-  if (hasPublicIP) {
-    console.log(`  Public:    http://${localIP}:${PORT}`);
-    console.log(`  LAN:       http://${lanIP}:${PORT}`);
-  } else {
-    console.log(`  HTTP:      http://${localIP}:${PORT}`);
+async function startServer() {
+  let port = BASE_PORT;
+  while (port < BASE_PORT + 10) {
+    if (await probePort(port)) break;
+    console.log(`[RELAY] Port ${port} in use, trying ${port + 1}...`);
+    port++;
   }
-  console.log(`  Mobile WS: ws://${localIP}:${PORT}/ws`);
-  console.log(`  Bridge WS: ws://${localIP}:${PORT}/bridge/ws`);
-  console.log('');
-  console.log('  Features:');
-  console.log('    - structured_output support');
-  console.log('    - heartbeat mechanism');
-  console.log('    - session state broadcasting');
-  console.log('');
-  console.log('  Waiting for bridges to register...');
-  console.log('='.repeat(50));
-  console.log('');
-});
+
+  server.listen(port, '0.0.0.0', () => {
+    const lanIP = getLanIP();
+    const hasPublicIP = process.env.PUBLIC_IP && process.env.PUBLIC_IP !== lanIP;
+
+    console.log('');
+    console.log('='.repeat(50));
+    console.log('  BTELO Coding Relay Server v2.0.0');
+    console.log('='.repeat(50));
+    if (hasPublicIP) {
+      console.log(`  Public:    http://${localIP}:${port}`);
+      console.log(`  LAN:       http://${lanIP}:${port}`);
+    } else {
+      console.log(`  HTTP:      http://${localIP}:${port}`);
+    }
+    console.log(`  Mobile WS: ws://${localIP}:${port}/ws`);
+    console.log(`  Bridge WS: ws://${localIP}:${port}/bridge/ws`);
+    console.log('');
+    console.log('  Features:');
+    console.log('    - structured_output support');
+    console.log('    - heartbeat mechanism');
+    console.log('    - session state broadcasting');
+    console.log('');
+    console.log('  Waiting for bridges to register...');
+    console.log('='.repeat(50));
+    console.log('');
+  });
+}
+
+startServer();
