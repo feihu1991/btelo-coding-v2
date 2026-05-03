@@ -5,6 +5,7 @@ import com.btelo.coding.data.local.EntityMappers.toEntity
 import com.btelo.coding.data.local.EntityMappers.toSessionList
 import com.btelo.coding.data.local.dao.SessionDao
 import com.btelo.coding.domain.model.Session
+import com.btelo.coding.domain.model.SessionAttentionType
 import com.btelo.coding.domain.repository.SessionRepository
 import com.btelo.coding.util.Logger
 import kotlinx.coroutines.flow.Flow
@@ -31,11 +32,12 @@ class SessionRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun createSession(name: String, tool: String): Session {
+    override suspend fun createSession(name: String, tool: String, path: String): Session {
         val session = Session(
             id = java.util.UUID.randomUUID().toString(),
             name = name,
             tool = tool,
+            path = path,
             createdAt = System.currentTimeMillis(),
             lastActiveAt = System.currentTimeMillis(),
             isConnected = false
@@ -47,14 +49,40 @@ class SessionRepositoryImpl @Inject constructor(
         return session
     }
 
-    override suspend fun createSessionWithId(sessionId: String, name: String, tool: String): Session {
+    override suspend fun createSessionWithId(
+        sessionId: String,
+        name: String,
+        tool: String,
+        path: String
+    ): Session {
+        val existing = sessionDao.getSessionByIdSync(sessionId)
         val session = Session(
             id = sessionId,
             name = name,
             tool = tool,
-            createdAt = System.currentTimeMillis(),
+            path = path.ifBlank { existing?.path.orEmpty() },
+            createdAt = existing?.createdAt ?: System.currentTimeMillis(),
             lastActiveAt = System.currentTimeMillis(),
-            isConnected = false
+            messageCount = existing?.messageCount ?: 0,
+            tokenCount = existing?.tokenCount ?: 0,
+            status = existing?.status?.let {
+                try {
+                    com.btelo.coding.domain.model.SessionStatus.valueOf(it)
+                } catch (_: IllegalArgumentException) {
+                    com.btelo.coding.domain.model.SessionStatus.ACTIVE
+                }
+            } ?: com.btelo.coding.domain.model.SessionStatus.ACTIVE,
+            isConnected = existing?.isConnected ?: false,
+            attentionType = existing?.attentionType?.let {
+                try {
+                    SessionAttentionType.valueOf(it)
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            },
+            attentionTitle = existing?.attentionTitle.orEmpty(),
+            attentionBody = existing?.attentionBody.orEmpty(),
+            attentionUpdatedAt = existing?.attentionUpdatedAt
         )
 
         sessionDao.insertSession(session.toEntity())
@@ -88,5 +116,21 @@ class SessionRepositoryImpl @Inject constructor(
 
     override suspend fun updateMessageCount(sessionId: String, count: Int) {
         sessionDao.updateMessageCount(sessionId, count)
+    }
+
+    override suspend fun updateSessionAttention(
+        sessionId: String,
+        attentionType: SessionAttentionType?,
+        title: String,
+        body: String,
+        updatedAt: Long?
+    ) {
+        sessionDao.updateAttention(
+            sessionId = sessionId,
+            attentionType = attentionType?.name,
+            attentionTitle = title,
+            attentionBody = body,
+            attentionUpdatedAt = updatedAt
+        )
     }
 }

@@ -2,11 +2,15 @@ package com.btelo.coding.data.update
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.btelo.coding.BuildConfig
+import com.btelo.coding.data.local.DataStoreManager
+import com.btelo.coding.notification.NotificationHelper
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,9 +41,12 @@ sealed class UpdateCheckResult {
 class AppUpdateManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient,
-    private val gson: Gson
+    private val gson: Gson,
+    private val dataStoreManager: DataStoreManager,
+    private val notificationHelper: NotificationHelper
 ) {
-    private val latestReleaseUrl = "https://api.github.com/repos/feihu1991/btelo-coding-v2/releases/latest"
+    private val latestReleaseUrl =
+        "https://api.github.com/repos/feihu1991/btelo-coding-v2/releases/latest"
 
     suspend fun checkForUpdate(): UpdateCheckResult = withContext(Dispatchers.IO) {
         val request = Request.Builder()
@@ -79,6 +86,27 @@ class AppUpdateManager @Inject constructor(
         }
     }
 
+    suspend fun restorePendingUpdate(): Pair<UpdateInfo, File>? = withContext(Dispatchers.IO) {
+        val versionName = dataStoreManager.getPendingUpdateVersionSync() ?: return@withContext null
+        val apkPath = dataStoreManager.getPendingUpdateApkPathSync() ?: return@withContext null
+        val apkName = dataStoreManager.getPendingUpdateApkNameSync() ?: return@withContext null
+        val apkFile = File(apkPath)
+        if (!apkFile.exists()) {
+            dataStoreManager.clearPendingUpdate()
+            return@withContext null
+        }
+
+        UpdateInfo(
+            versionName = versionName,
+            versionCode = null,
+            releaseName = versionName,
+            releaseUrl = "",
+            apkName = apkName,
+            apkDownloadUrl = "",
+            apkSize = apkFile.length()
+        ) to apkFile
+    }
+
     suspend fun downloadApk(info: UpdateInfo, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(info.apkDownloadUrl)
@@ -105,8 +133,46 @@ class AppUpdateManager @Inject constructor(
                     }
                 }
             }
+
             onProgress(1f)
+            dataStoreManager.savePendingUpdate(
+                versionName = info.versionName,
+                apkPath = apkFile.absolutePath,
+                apkName = info.apkName
+            )
             apkFile
+        }
+    }
+
+    suspend fun prepareUpdateInBackground(info: UpdateInfo): File? = withContext(Dispatchers.IO) {
+        val restored = restorePendingUpdate()
+        if (restored != null && restored.first.versionName == info.versionName) {
+            return@withContext restored.second
+        }
+
+        if (!isOnUnmeteredConnection()) {
+            return@withContext null
+        }
+
+        runCatching {
+            downloadApk(info) { }
+        }.onSuccess {
+            if (notificationHelper.shouldShowNotification()) {
+                notificationHelper.showGeneralNotification(
+                    title = "Update ready",
+                    body = "Version ${info.versionName} has been downloaded and is ready to install."
+                )
+            }
+        }.getOrNull()
+    }
+
+    suspend fun clearPendingUpdate() {
+        withContext(Dispatchers.IO) {
+            val apkPath = dataStoreManager.getPendingUpdateApkPathSync()
+            if (!apkPath.isNullOrBlank()) {
+                runCatching { File(apkPath).delete() }
+            }
+            dataStoreManager.clearPendingUpdate()
         }
     }
 
@@ -136,14 +202,24 @@ class AppUpdateManager @Inject constructor(
         context.startActivity(installIntent)
     }
 
+    private fun isOnUnmeteredConnection(): Boolean {
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val notMetered = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        return hasInternet && notMetered
+    }
+
     private fun isNewerVersion(remote: String, current: String): Boolean {
         val remoteParts = remote.split(".", "-", "_").mapNotNull { it.toIntOrNull() }
         val currentParts = current.split(".", "-", "_").mapNotNull { it.toIntOrNull() }
         val max = maxOf(remoteParts.size, currentParts.size)
         for (i in 0 until max) {
-            val r = remoteParts.getOrElse(i) { 0 }
-            val c = currentParts.getOrElse(i) { 0 }
-            if (r != c) return r > c
+            val remotePart = remoteParts.getOrElse(i) { 0 }
+            val currentPart = currentParts.getOrElse(i) { 0 }
+            if (remotePart != currentPart) return remotePart > currentPart
         }
         return false
     }

@@ -161,6 +161,15 @@ object AppModule {
         }
     }
 
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE sessions ADD COLUMN attentionType TEXT")
+            database.execSQL("ALTER TABLE sessions ADD COLUMN attentionTitle TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE sessions ADD COLUMN attentionBody TEXT NOT NULL DEFAULT ''")
+            database.execSQL("ALTER TABLE sessions ADD COLUMN attentionUpdatedAt INTEGER")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -169,7 +178,7 @@ object AppModule {
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .fallbackToDestructiveMigration()
             .build()
     }
@@ -222,9 +231,10 @@ object AppModule {
     @Singleton
     fun provideMessageRepository(
         messageDao: MessageDao,
+        sessionDao: SessionDao,
         webSocketFactory: WebSocketClientFactory
     ): MessageRepository {
-        return MessageRepositoryImpl(messageDao, webSocketFactory)
+        return MessageRepositoryImpl(messageDao, sessionDao, webSocketFactory)
     }
 
     @Provides

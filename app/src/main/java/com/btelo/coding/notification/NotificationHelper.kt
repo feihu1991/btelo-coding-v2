@@ -35,6 +35,7 @@ class NotificationHelper @Inject constructor(
         // Notification IDs
         const val NOTIFICATION_ID_CHAT_BASE = 1000
         const val NOTIFICATION_ID_SYNC = 2000
+        const val NOTIFICATION_ID_GENERAL = 3000
         
         // Intent extras
         const val EXTRA_SESSION_ID = "session_id"
@@ -193,6 +194,33 @@ class NotificationHelper @Inject constructor(
             .build()
         
         notificationManager.notify(NOTIFICATION_ID_SYNC, notification)
+    }
+
+    fun showGeneralNotification(title: String, body: String) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            NOTIFICATION_ID_GENERAL,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID_GENERAL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_GENERAL, notification)
     }
 
     /**

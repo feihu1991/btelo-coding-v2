@@ -26,6 +26,9 @@ class DataStoreManager @Inject constructor(
         private const val KEY_SESSION_ID = "session_id"
         private const val KEY_WS_TOKEN = "ws_token"
         private const val KEY_CLAUDE_SESSION_ID = "claude_session_id"
+        private const val KEY_PENDING_UPDATE_VERSION = "pending_update_version"
+        private const val KEY_PENDING_UPDATE_APK_PATH = "pending_update_apk_path"
+        private const val KEY_PENDING_UPDATE_APK_NAME = "pending_update_apk_name"
         
         // Sensitive keys (stored in encrypted preferences)
         private const val KEY_TOKEN = "auth_token"
@@ -185,6 +188,34 @@ class DataStoreManager @Inject constructor(
             .remove(KEY_WS_TOKEN)
             .remove(KEY_CLAUDE_SESSION_ID)
             .remove(KEY_DEVICE_ID)
+            .apply()
+    }
+
+    fun getPendingUpdateVersionSync(): String? {
+        return regularPrefs.getString(KEY_PENDING_UPDATE_VERSION, null)
+    }
+
+    fun getPendingUpdateApkPathSync(): String? {
+        return regularPrefs.getString(KEY_PENDING_UPDATE_APK_PATH, null)
+    }
+
+    fun getPendingUpdateApkNameSync(): String? {
+        return regularPrefs.getString(KEY_PENDING_UPDATE_APK_NAME, null)
+    }
+
+    suspend fun savePendingUpdate(versionName: String, apkPath: String, apkName: String) {
+        regularPrefs.edit()
+            .putString(KEY_PENDING_UPDATE_VERSION, versionName)
+            .putString(KEY_PENDING_UPDATE_APK_PATH, apkPath)
+            .putString(KEY_PENDING_UPDATE_APK_NAME, apkName)
+            .apply()
+    }
+
+    suspend fun clearPendingUpdate() {
+        regularPrefs.edit()
+            .remove(KEY_PENDING_UPDATE_VERSION)
+            .remove(KEY_PENDING_UPDATE_APK_PATH)
+            .remove(KEY_PENDING_UPDATE_APK_NAME)
             .apply()
     }
     

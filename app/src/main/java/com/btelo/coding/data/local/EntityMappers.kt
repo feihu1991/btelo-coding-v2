@@ -9,6 +9,7 @@ import com.btelo.coding.domain.model.MessageMetadata
 import com.btelo.coding.domain.model.MessageType
 import com.btelo.coding.domain.model.OutputType
 import com.btelo.coding.domain.model.Session
+import com.btelo.coding.domain.model.SessionAttentionType
 import com.btelo.coding.domain.model.SessionStatus
 import com.btelo.coding.domain.model.ToolExecution
 import com.btelo.coding.domain.model.ToolStatus
@@ -39,7 +40,17 @@ object EntityMappers {
             } catch (e: IllegalArgumentException) {
                 SessionStatus.ACTIVE
             },
-            isConnected = isConnected
+            isConnected = isConnected,
+            attentionType = attentionType?.let {
+                try {
+                    SessionAttentionType.valueOf(it)
+                } catch (e: IllegalArgumentException) {
+                    null
+                }
+            },
+            attentionTitle = attentionTitle,
+            attentionBody = attentionBody,
+            attentionUpdatedAt = attentionUpdatedAt
         )
     }
 
@@ -54,7 +65,11 @@ object EntityMappers {
             messageCount = messageCount,
             tokenCount = tokenCount,
             status = status.name,
-            isConnected = isConnected
+            isConnected = isConnected,
+            attentionType = attentionType?.name,
+            attentionTitle = attentionTitle,
+            attentionBody = attentionBody,
+            attentionUpdatedAt = attentionUpdatedAt
         )
     }
 

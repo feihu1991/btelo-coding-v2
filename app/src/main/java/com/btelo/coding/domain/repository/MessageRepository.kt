@@ -10,6 +10,7 @@ interface MessageRepository {
     fun getMessages(sessionId: String): Flow<List<Message>>
     suspend fun getLastMessage(sessionId: String): Message?
     suspend fun sendMessage(sessionId: String, content: String): Result<Unit>
+    suspend fun sendPermissionDecision(sessionId: String, decision: String): Result<Unit>
     fun observeOutput(sessionId: String): Flow<Message>
     
     /**

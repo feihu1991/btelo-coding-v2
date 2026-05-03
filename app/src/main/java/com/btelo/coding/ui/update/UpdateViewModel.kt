@@ -37,7 +37,43 @@ class UpdateViewModel @Inject constructor(
     fun checkOnLaunch() {
         if (autoChecked) return
         autoChecked = true
-        checkForUpdate(showNoUpdateMessage = false)
+        restorePreparedUpdate()
+        prepareNextUpdateInBackground()
+    }
+
+    private fun restorePreparedUpdate() {
+        viewModelScope.launch {
+            runCatching { updateManager.restorePendingUpdate() }
+                .onSuccess { restored ->
+                    if (restored != null) {
+                        _uiState.value = _uiState.value.copy(
+                            updateInfo = restored.first,
+                            downloadedApk = restored.second,
+                            message = "Update ${restored.first.versionName} is ready to install"
+                        )
+                    }
+                }
+        }
+    }
+
+    private fun prepareNextUpdateInBackground() {
+        if (_uiState.value.isChecking || _uiState.value.isDownloading) return
+
+        viewModelScope.launch {
+            runCatching { updateManager.checkForUpdate() }
+                .onSuccess { result ->
+                    if (result is UpdateCheckResult.Available) {
+                        val prepared = updateManager.prepareUpdateInBackground(result.info)
+                        if (prepared != null) {
+                            _uiState.value = _uiState.value.copy(
+                                updateInfo = result.info,
+                                downloadedApk = prepared,
+                                message = "Update ${result.info.versionName} is ready to install"
+                            )
+                        }
+                    }
+                }
+        }
     }
 
     fun checkForUpdate(showNoUpdateMessage: Boolean = true) {
@@ -53,12 +89,22 @@ class UpdateViewModel @Inject constructor(
             runCatching { updateManager.checkForUpdate() }
                 .onSuccess { result ->
                     _uiState.value = when (result) {
-                        is UpdateCheckResult.Available -> _uiState.value.copy(
-                            isChecking = false,
-                            updateInfo = result.info,
-                            downloadedApk = null,
-                            message = "New version ${result.info.versionName} is ready"
-                        )
+                        is UpdateCheckResult.Available -> {
+                            val restored = updateManager.restorePendingUpdate()
+                            val downloadedApk =
+                                restored?.takeIf { it.first.versionName == result.info.versionName }?.second
+                            _uiState.value.copy(
+                                isChecking = false,
+                                updateInfo = result.info,
+                                downloadedApk = downloadedApk,
+                                message = if (downloadedApk != null) {
+                                    "Update ${result.info.versionName} is ready to install"
+                                } else {
+                                    "New version ${result.info.versionName} is ready"
+                                }
+                            )
+                        }
+
                         UpdateCheckResult.NotAvailable -> _uiState.value.copy(
                             isChecking = false,
                             message = if (showNoUpdateMessage) "Already up to date" else null
@@ -88,7 +134,8 @@ class UpdateViewModel @Inject constructor(
 
             runCatching {
                 updateManager.downloadApk(info) { progress ->
-                    _uiState.value = _uiState.value.copy(downloadProgress = progress.coerceIn(0f, 1f))
+                    _uiState.value =
+                        _uiState.value.copy(downloadProgress = progress.coerceIn(0f, 1f))
                 }
             }
                 .onSuccess { apk ->

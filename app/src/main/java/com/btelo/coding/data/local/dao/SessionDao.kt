@@ -50,4 +50,20 @@ interface SessionDao {
 
     @Query("UPDATE sessions SET messageCount = :count WHERE id = :sessionId")
     suspend fun updateMessageCount(sessionId: String, count: Int)
+
+    @Query("""
+        UPDATE sessions
+        SET attentionType = :attentionType,
+            attentionTitle = :attentionTitle,
+            attentionBody = :attentionBody,
+            attentionUpdatedAt = :attentionUpdatedAt
+        WHERE id = :sessionId
+    """)
+    suspend fun updateAttention(
+        sessionId: String,
+        attentionType: String?,
+        attentionTitle: String,
+        attentionBody: String,
+        attentionUpdatedAt: Long?
+    )
 }

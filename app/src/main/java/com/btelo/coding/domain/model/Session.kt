@@ -10,9 +10,19 @@ data class Session(
     val messageCount: Int = 0,
     val tokenCount: Int = 0,
     val status: SessionStatus = SessionStatus.ACTIVE,
-    val isConnected: Boolean
+    val isConnected: Boolean,
+    val attentionType: SessionAttentionType? = null,
+    val attentionTitle: String = "",
+    val attentionBody: String = "",
+    val attentionUpdatedAt: Long? = null
 )
 
 enum class SessionStatus {
     ACTIVE, IDLE, COMPLETED
+}
+
+enum class SessionAttentionType {
+    WAITING_INPUT,
+    PERMISSION_REQUEST,
+    TASK_COMPLETE
 }

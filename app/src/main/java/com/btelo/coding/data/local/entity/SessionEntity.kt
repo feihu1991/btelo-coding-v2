@@ -16,8 +16,11 @@ data class SessionEntity(
     val tokenCount: Int = 0,
     val status: String = "ACTIVE",
     val isConnected: Boolean,
-    // 密钥版本相关字段
-    val currentKeyVersion: Int = 1,           // 当前密钥版本
-    val lastKeyRotation: Long = 0,           // 上次密钥轮换时间戳
-    val rotationIntervalDays: Int = 7         // 密钥轮换间隔（天）
+    val attentionType: String? = null,
+    val attentionTitle: String = "",
+    val attentionBody: String = "",
+    val attentionUpdatedAt: Long? = null,
+    val currentKeyVersion: Int = 1,
+    val lastKeyRotation: Long = 0,
+    val rotationIntervalDays: Int = 7
 )

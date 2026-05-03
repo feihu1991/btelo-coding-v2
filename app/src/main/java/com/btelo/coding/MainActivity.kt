@@ -36,13 +36,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val savedServer = intentServer ?: dataStoreManager.getServerAddressSync()
-        val savedToken = intentToken ?: dataStoreManager.getWsTokenSync()
-        val savedSession = intentSession ?: dataStoreManager.getSessionIdSync()
-        val hasCredentials = !savedServer.isNullOrBlank() && !savedToken.isNullOrBlank() && !savedSession.isNullOrBlank()
-
-        val startDest = if (hasCredentials) {
-            Screen.Chat.createRoute(savedSession!!)
+        val startDest = if (!intentSession.isNullOrBlank()) {
+            Screen.Chat.createRoute(intentSession)
         } else {
             Screen.Scan.route
         }
