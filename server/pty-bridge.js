@@ -340,6 +340,19 @@ class PtyBridge {
     });
     
     console.log('[PTY] PTY started with PID:', this.state.ptyProcess.pid);
+
+    // Forward terminal stdin → PTY so user can type in the claudex terminal
+    if (process.stdin.isTTY) {
+      try { process.stdin.setRawMode(true); } catch (e) {}
+      process.stdin.resume();
+      process.stdin.on('data', (data) => {
+        if (this.state.ptyProcess) {
+          this.state.ptyProcess.write(data.toString());
+        }
+      });
+      console.log('[PTY] Terminal stdin forwarding enabled');
+    }
+
     setTimeout(() => this.flushPendingInput(), 900);
   }
   
@@ -557,6 +570,8 @@ class PtyBridge {
    * Stop PTY process
    */
   stopPty() {
+    if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch (e) {} }
+
     if (this.state.ptyProcess) {
       console.log('[PTY] Stopping PTY...');
       try {
@@ -587,11 +602,13 @@ class PtyBridge {
     // Generate 6-digit auth code
     const authCode = String(Math.floor(100000 + Math.random() * 900000));
     console.log('');
-    console.log('  ╔══════════════════════════════════════╗');
-    console.log('  ║          AUTH CODE                   ║');
-    console.log(`  ║            ${authCode}                      ║`);
-    console.log('  ║     Enter this code in the app       ║');
-    console.log('  ╚══════════════════════════════════════╝');
+    const boxWidth = 36;
+    const codePad = boxWidth - 14 - authCode.length;
+    console.log('  ╔' + '═'.repeat(boxWidth) + '╗');
+    console.log('  ║' + 'AUTH CODE'.padStart((boxWidth + 9) / 2).padEnd(boxWidth) + '║');
+    console.log('  ║' + ' '.repeat(12) + authCode + ' '.repeat(codePad) + '║');
+    console.log('  ║' + 'Enter this code in the app'.padStart((boxWidth + 26) / 2).padEnd(boxWidth) + '║');
+    console.log('  ╚' + '═'.repeat(boxWidth) + '╝');
     console.log('');
 
     let regRes;
@@ -752,28 +769,29 @@ async function main() {
   const opts = parseArgs();
   const claudeInfo = detectClaudeCode();
   
+  const border = '='.repeat(54);
   console.log('');
-  console.log('='.repeat(50));
+  console.log(border);
   console.log('  BTELO Coding PTY Bridge');
-  console.log('='.repeat(50));
-  console.log('  Server:    ', opts.server);
-  console.log('  Work Dir:  ', opts.workDir);
-  console.log('  Device:    ', opts.name);
-  console.log('  Format:    ', opts.outputFormat);
+  console.log(border);
+  console.log(`  Server:     ${opts.server}`);
+  console.log(`  Work Dir:   ${opts.workDir}`);
+  console.log(`  Device:     ${opts.name}`);
+  console.log(`  Format:     ${opts.outputFormat}`);
   if (opts.sessionId) {
-    console.log('  Session:   ', opts.sessionId);
+    console.log(`  Session:    ${opts.sessionId}`);
   }
   if (claudeInfo.installed) {
-    console.log('  Claude:    ', claudeInfo.version);
+    console.log(`  Claude:     ${claudeInfo.version}`);
   } else {
-    console.log('  Claude:    NOT FOUND');
+    console.log('  Claude:     NOT FOUND');
   }
   if (pty) {
-    console.log('  PTY Mode: ', 'Enabled (node-pty)');
+    console.log('  PTY Mode:   Enabled (node-pty)');
   } else {
-    console.log('  PTY Mode: ', 'Fallback (spawn)');
+    console.log('  PTY Mode:   Fallback (spawn)');
   }
-  console.log('='.repeat(50));
+  console.log(border);
   console.log('');
 
   // Discover and auto-select a Claude session

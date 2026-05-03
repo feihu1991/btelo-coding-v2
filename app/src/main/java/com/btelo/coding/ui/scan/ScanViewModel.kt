@@ -116,29 +116,33 @@ class ScanViewModel @Inject constructor(
         call.enqueue(object : Callback {
             override fun onResponse(call: Call, response: Response) {
                 if (!call.isCanceled()) {
-                    val body = response.body?.string() ?: ""
-                    val resp = gson.fromJson(body, BridgesResponse::class.java)
-                    if (resp != null && resp.success) {
-                        viewModelScope.launch { dataStoreManager.saveServerAddress(server) }
-                        _uiState.value = _uiState.value.copy(
-                            isDiscovering = false,
-                            bridges = resp.bridges
-                        )
-                    } else {
-                        _uiState.value = _uiState.value.copy(
-                            isDiscovering = false,
-                            error = "未发现可用设备"
-                        )
+                    viewModelScope.launch {
+                        val body = withContext(Dispatchers.IO) { response.body?.string() ?: "" }
+                        val resp = gson.fromJson(body, BridgesResponse::class.java)
+                        if (resp != null && resp.success) {
+                            dataStoreManager.saveServerAddress(server)
+                            _uiState.value = _uiState.value.copy(
+                                isDiscovering = false,
+                                bridges = resp.bridges
+                            )
+                        } else {
+                            _uiState.value = _uiState.value.copy(
+                                isDiscovering = false,
+                                error = "未发现可用设备"
+                            )
+                        }
                     }
                 }
             }
 
             override fun onFailure(call: Call, e: IOException) {
                 if (!call.isCanceled()) {
-                    _uiState.value = _uiState.value.copy(
-                        isDiscovering = false,
-                        error = "无法连接服务器: ${e.message}"
-                    )
+                    viewModelScope.launch {
+                        _uiState.value = _uiState.value.copy(
+                            isDiscovering = false,
+                            error = "无法连接服务器: ${e.message}"
+                        )
+                    }
                 }
             }
         })

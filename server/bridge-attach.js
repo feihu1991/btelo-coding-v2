@@ -278,15 +278,16 @@ async function main() {
 
   state.outputParser = createOutputParser(state, opts.verbose);
 
+  const border = '='.repeat(58);
   console.log('');
-  console.log('='.repeat(58));
+  console.log(border);
   console.log('  BTELO Coding Windows Attach Bridge');
-  console.log('='.repeat(58));
-  console.log(`  Server:    ${opts.server}`);
-  console.log(`  Work Dir:  ${opts.workDir}`);
-  console.log(`  Device:    ${opts.name}`);
-  console.log(`  Mode:      windows_attach`);
-  console.log(`  Claude:    ${claudeInfo.installed ? claudeInfo.version : 'NOT FOUND'}`);
+  console.log(border);
+  console.log(`  Server:     ${opts.server}`);
+  console.log(`  Work Dir:   ${opts.workDir}`);
+  console.log(`  Device:     ${opts.name}`);
+  console.log(`  Mode:       windows_attach`);
+  console.log(`  Claude:     ${claudeInfo.installed ? claudeInfo.version : 'NOT FOUND'}`);
   console.log('');
   printSessions(sessions);
 
@@ -298,11 +299,13 @@ async function main() {
 
   const authCode = String(Math.floor(100000 + Math.random() * 900000));
   console.log('');
-  console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║          AUTH CODE                   ║');
-  console.log(`  ║            ${authCode}                      ║`);
-  console.log('  ║     Enter this code in the app       ║');
-  console.log('  ╚══════════════════════════════════════╝');
+  const boxWidth = 36;
+  const codePad = boxWidth - 14 - authCode.length;
+  console.log('  ╔' + '═'.repeat(boxWidth) + '╗');
+  console.log('  ║' + 'AUTH CODE'.padStart((boxWidth + 9) / 2).padEnd(boxWidth) + '║');
+  console.log('  ║' + ' '.repeat(12) + authCode + ' '.repeat(codePad) + '║');
+  console.log('  ║' + 'Enter this code in the app'.padStart((boxWidth + 26) / 2).padEnd(boxWidth) + '║');
+  console.log('  ╚' + '═'.repeat(boxWidth) + '╝');
   console.log('');
 
   let regRes;

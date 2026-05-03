@@ -61,7 +61,7 @@ class UpdateViewModel @Inject constructor(
                         )
                         UpdateCheckResult.NotAvailable -> _uiState.value.copy(
                             isChecking = false,
-                            message = if (showNoUpdateMessage) "Already up to date" else null
+                            message = if (showNoUpdateMessage) "当前已经是最新版本" else null
                         )
                     }
                 }

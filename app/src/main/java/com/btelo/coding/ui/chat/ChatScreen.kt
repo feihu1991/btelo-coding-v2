@@ -99,6 +99,13 @@ fun ChatScreen(
         }
     }
 
+    LaunchedEffect(updateState.message) {
+        updateState.message?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            updateViewModel.clearMessage()
+        }
+    }
+
     if (showDisconnectDialog) {
         AlertDialog(
             onDismissRequest = { showDisconnectDialog = false },

@@ -38,6 +38,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -80,6 +82,7 @@ fun ScanScreen(
     val uiState by viewModel.uiState.collectAsState()
     val updateState by updateViewModel.uiState.collectAsState()
     val availableUpdate = updateState.updateInfo
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var showAuthDialog by remember { mutableStateOf(false) }
     var authBridgeId by remember { mutableStateOf("") }
@@ -94,6 +97,13 @@ fun ScanScreen(
 
     LaunchedEffect(Unit) {
         updateViewModel.checkOnLaunch()
+    }
+
+    LaunchedEffect(updateState.message) {
+        updateState.message?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            updateViewModel.clearMessage()
+        }
     }
 
     UpdateDialog(
@@ -369,6 +379,11 @@ fun ScanScreen(
                 }
             )
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+        )
     }
 }
 
