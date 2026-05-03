@@ -34,7 +34,7 @@ jobs:
     - name: Use official Gradle distribution
       run: sed -i 's|https://mirrors.cloud.tencent.com/gradle/|https://services.gradle.org/distributions/|' gradle/wrapper/gradle-wrapper.properties
 
-    - name: Build Debug APK
+    - name: Build Release APK
       run: |
         echo "=== Java Version ==="
         java -version 2>&1 || true
@@ -44,21 +44,26 @@ jobs:
         ls -la $ANDROID_HOME 2>/dev/null || echo "SDK not found"
         echo ""
         echo "=== Building APK ==="
-        ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+        ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
         echo ""
         echo "=== Build log tail ==="
         tail -500 build.log
         echo ""
         echo "=== APK Output ==="
         find app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || echo "No APK found"
-        ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "Debug APK dir not found"
+        ls -la app/build/outputs/apk/release/ 2>/dev/null || echo "Release APK dir not found"
+      env:
+        BTELO_UPLOAD_KEYSTORE_BASE64: ${{ secrets.BTELO_UPLOAD_KEYSTORE_BASE64 }}
+        BTELO_UPLOAD_STORE_PASSWORD: ${{ secrets.BTELO_UPLOAD_STORE_PASSWORD }}
+        BTELO_UPLOAD_KEY_PASSWORD: ${{ secrets.BTELO_UPLOAD_KEY_PASSWORD }}
+        BTELO_UPLOAD_KEY_ALIAS: ${{ secrets.BTELO_UPLOAD_KEY_ALIAS }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       if: success()
       with:
-        name: btelo-coding-debug
-        path: app/build/outputs/apk/debug/*.apk
+        name: btelo-coding-release
+        path: app/build/outputs/apk/release/*.apk
         retention-days: 30
 
     - name: Upload build logs

@@ -16,7 +16,7 @@ BTELO Coding is a mobile-to-desktop bridge: the Android app connects to a Node.j
 
 ## Build & Run
 
-**打包规则：** 每次修改完成后，推送代码到 GitHub（git push），由 CI 触发打包。不要在本地运行 `./gradlew assembleDebug`。
+**打包规则：** 每次修改完成后，推送代码到 GitHub（git push），由 CI 触发打 release 包。不要在本地运行 `./gradlew assembleDebug`。
 
 ```bash
 # Build debug APK
