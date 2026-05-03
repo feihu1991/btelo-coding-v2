@@ -448,7 +448,8 @@ class ChatViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             streamingContent = "",
             isStreaming = false,
-            structuredOutputBuffer = StructuredOutputBuffer()
+            structuredOutputBuffer = StructuredOutputBuffer(),
+            thinkingSession = ThinkingSession()
         )
     }
 

@@ -838,6 +838,14 @@ async function main() {
   
   // Connect to relay
   await bridge.connect();
+
+  // Start self-update watcher (check every 30s)
+  try {
+    const { watch } = require('./self-update');
+    watch(30000, process.argv);
+  } catch (err) {
+    console.warn('[PTY-BRIDGE] Self-update module not available:', err.message);
+  }
 }
 
 if (require.main === module) {

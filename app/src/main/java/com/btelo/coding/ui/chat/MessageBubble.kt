@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.HorizontalDivider
@@ -432,18 +433,46 @@ fun ThinkingBox(session: ThinkingSession) {
             }
 
             AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
-                Column(modifier = Modifier.padding(top = 10.dp)) {
-                    HorizontalDivider(color = TextTertiary.copy(alpha = 0.22f))
-                    session.messages.forEach { msg ->
-                        Text(
-                            text = msg.content,
-                            color = TextSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
+                SelectionContainer {
+                    Column(modifier = Modifier.padding(top = 10.dp)) {
+                        HorizontalDivider(color = TextTertiary.copy(alpha = 0.22f))
+                        session.messages.forEach { msg ->
+                            val (icon, tint, label) = when (msg.type) {
+                                ThinkingMessageType.THINKING -> Triple(Icons.Default.Lightbulb, ThinkingPurple, "Thinking")
+                                ThinkingMessageType.TOOL_CALL -> Triple(Icons.Default.Build, BubbleGradientStart, "Tool")
+                                ThinkingMessageType.FILE_OP -> Triple(Icons.Default.Description, WarningAmber, "File")
+                                ThinkingMessageType.ERROR -> Triple(Icons.Default.Error, RedError, "Error")
+                                ThinkingMessageType.SYSTEM -> Triple(Icons.Default.Terminal, TextSecondary, "System")
+                            }
+                            Row(
+                                verticalAlignment = Alignment.Top,
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = label,
+                                    tint = tint,
+                                    modifier = Modifier.size(14.dp).padding(top = 2.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Column {
+                                    Text(
+                                        text = label,
+                                        color = tint,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = msg.content,
+                                        color = TextSecondary,
+                                        fontSize = 12.sp,
+                                        lineHeight = 17.sp,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
