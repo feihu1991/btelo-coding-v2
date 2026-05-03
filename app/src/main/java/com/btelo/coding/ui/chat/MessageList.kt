@@ -26,7 +26,7 @@ fun MessageList(
         }
     }
 
-    LaunchedEffect(streamingContent, thinkingSession?.currentMessage, thinkingSession?.isActive) {
+    LaunchedEffect(streamingContent, thinkingSession?.currentMessage, thinkingSession?.isActive, thinkingSession?.isCompleted) {
         if (listState.layoutInfo.totalItemsCount > 0) {
             listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
         }
@@ -41,7 +41,7 @@ fun MessageList(
             MessageBubble(message = message)
         }
 
-        if (thinkingSession != null && thinkingSession.isActive) {
+        if (thinkingSession != null && (thinkingSession.isActive || thinkingSession.isCompleted)) {
             item(key = "thinking_box") {
                 ThinkingBox(session = thinkingSession)
             }

@@ -39,6 +39,7 @@ enum class ThinkingMessageType {
 
 data class ThinkingSession(
     val isActive: Boolean = false,
+    val isCompleted: Boolean = false,
     val messages: List<ThinkingMessage> = emptyList(),
     val currentMessageType: ThinkingMessageType? = null,
     val currentMessage: String = ""
@@ -135,7 +136,13 @@ class ChatViewModel @Inject constructor(
                     isLoading = if (shouldClearPending) false else currentState.isLoading,
                     isStreaming = if (shouldClearPending) false else currentState.isStreaming,
                     streamingContent = if (shouldClearPending) "" else currentState.streamingContent,
-                    thinkingSession = if (shouldClearPending) ThinkingSession() else currentState.thinkingSession
+                    thinkingSession = if (shouldClearPending && currentState.thinkingSession.isActive) {
+                        currentState.thinkingSession.copy(isActive = false, isCompleted = true, currentMessage = "Completed")
+                    } else if (shouldClearPending) {
+                        ThinkingSession()
+                    } else {
+                        currentState.thinkingSession
+                    }
                 )
             }
         }
@@ -259,8 +266,13 @@ class ChatViewModel @Inject constructor(
                 viewModelScope.launch { messageRepository.saveMessage(thinkingMsg) }
             }
 
+            // Keep thinking session visible but mark as completed (lightbulb stops)
             _uiState.value = _uiState.value.copy(
-                thinkingSession = ThinkingSession(),
+                thinkingSession = currentSession.copy(
+                    isActive = false,
+                    isCompleted = true,
+                    currentMessage = "Completed"
+                ),
                 isStreaming = true,
                 streamingContent = structuredMsg.content
             )
@@ -410,6 +422,7 @@ class ChatViewModel @Inject constructor(
             inputText = "",
             thinkingSession = ThinkingSession(
                 isActive = true,
+                isCompleted = false,
                 messages = emptyList(),
                 currentMessageType = null,
                 currentMessage = "Waiting for Claude"
@@ -445,11 +458,16 @@ class ChatViewModel @Inject constructor(
             }
         }
 
+        val currentSession = _uiState.value.thinkingSession
         _uiState.value = _uiState.value.copy(
             streamingContent = "",
             isStreaming = false,
             structuredOutputBuffer = StructuredOutputBuffer(),
-            thinkingSession = ThinkingSession()
+            thinkingSession = if (currentSession.isActive) {
+                currentSession.copy(isActive = false, isCompleted = true, currentMessage = "Completed")
+            } else {
+                ThinkingSession()
+            }
         )
     }
 

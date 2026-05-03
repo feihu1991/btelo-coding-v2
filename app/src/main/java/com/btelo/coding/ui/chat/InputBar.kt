@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Terminal
@@ -29,11 +30,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +50,7 @@ import com.btelo.coding.ui.theme.AppBackground
 import com.btelo.coding.ui.theme.BorderSubtle
 import com.btelo.coding.ui.theme.BubbleGradientStart
 import com.btelo.coding.ui.theme.InputSurface
+import com.btelo.coding.ui.theme.SendGradientStart
 import com.btelo.coding.ui.theme.TextPrimary
 import com.btelo.coding.ui.theme.TextSecondary
 
@@ -70,6 +76,8 @@ fun InputBar(
     val showSlashCommands = text.startsWith("/") && !text.contains('\n')
     val matchingCommands = SlashCommands.filter { it.first.startsWith(text.ifBlank { "/" }) }
         .ifEmpty { SlashCommands }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Column(
         modifier = modifier
@@ -160,7 +168,7 @@ fun InputBar(
                 .fillMaxWidth()
                 .clip(inputShape)
                 .background(InputSurface)
-                .padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
+                .padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
@@ -180,7 +188,8 @@ fun InputBar(
                 onValueChange = onTextChange,
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 42.dp, max = 124.dp),
+                    .heightIn(min = 42.dp, max = 124.dp)
+                    .focusRequester(focusRequester),
                 placeholder = {
                     Text("Message Claude", color = TextSecondary.copy(alpha = 0.65f), fontSize = 15.sp)
                 },
@@ -196,8 +205,34 @@ fun InputBar(
                 maxLines = 5,
                 textStyle = TextStyle(fontSize = 15.sp, lineHeight = 20.sp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { onSend() })
+                keyboardActions = KeyboardActions(onSend = {
+                    onSend()
+                    // Keep keyboard open after sending
+                    keyboardController?.show()
+                })
             )
+
+            // Send button (visible when there's text)
+            AnimatedVisibility(visible = text.isNotBlank()) {
+                IconButton(
+                    onClick = {
+                        onSend()
+                        // Keep keyboard open after sending
+                        keyboardController?.show()
+                    },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(SendGradientStart)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Send",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(2.dp))

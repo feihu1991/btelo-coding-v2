@@ -28,6 +28,10 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Terminal
@@ -375,6 +379,7 @@ fun CodeBlock(code: String, language: String = "") {
 @Composable
 fun ThinkingBox(session: ThinkingSession) {
     var expanded by remember { mutableStateOf(false) }
+    var expandedTypes by remember { mutableStateOf(setOf<ThinkingMessageType>()) }
     val transition = rememberInfiniteTransition(label = "tool-rotation")
     val rotation by transition.animateFloat(
         initialValue = 0f,
@@ -382,10 +387,32 @@ fun ThinkingBox(session: ThinkingSession) {
         animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Restart),
         label = "tool-rotation"
     )
+    val statusAlpha by transition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
+        label = "status-alpha"
+    )
     val toolCount = session.messages.count {
         it.type == ThinkingMessageType.TOOL_CALL || it.type == ThinkingMessageType.FILE_OP
     }
-    val latest = session.currentMessage.ifBlank { "Waiting for Claude" }
+    val isActive = session.isActive
+    val isCompleted = session.isCompleted
+    val latest = when {
+        isCompleted -> "Completed - ${session.messages.size} steps"
+        isActive -> session.currentMessage.ifBlank { "Waiting for Claude" }
+        else -> "Waiting for Claude"
+    }
+
+    // Group messages by type for collapsible sections
+    val groupedMessages = session.messages.groupBy { it.type }
+    val typeOrder = listOf(
+        ThinkingMessageType.THINKING,
+        ThinkingMessageType.TOOL_CALL,
+        ThinkingMessageType.FILE_OP,
+        ThinkingMessageType.ERROR,
+        ThinkingMessageType.SYSTEM
+    )
 
     Column(
         modifier = Modifier
@@ -399,6 +426,7 @@ fun ThinkingBox(session: ThinkingSession) {
                 .clickable { expanded = !expanded }
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
+            // Header row with Lightbulb icon
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
@@ -408,68 +436,130 @@ fun ThinkingBox(session: ThinkingSession) {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Terminal,
+                        imageVector = Icons.Default.Lightbulb,
                         contentDescription = null,
-                        tint = ThinkingPurple,
+                        tint = if (isCompleted) GreenSuccess else ThinkingPurple,
                         modifier = Modifier
                             .size(15.dp)
-                            .rotate(if (session.isActive) rotation else 0f)
+                            .rotate(if (isActive) rotation else 0f)
                     )
                 }
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = latest,
+                    text = if (expanded) "Thinking Process" else latest,
                     color = TextPrimary,
                     fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                Text(
-                    text = if (toolCount > 0) "$toolCount tools" else "running",
-                    color = TextSecondary,
-                    fontSize = 12.sp
+                if (toolCount > 0) {
+                    Text(
+                        text = "$toolCount tools",
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = TextTertiary,
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
+            // Status ticker outside the collapsed area (visible when active and not expanded)
+            if (!expanded && isActive) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = latest,
+                    color = TextSecondary.copy(alpha = statusAlpha),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Expanded view with per-type collapsible groups
             AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
                 SelectionContainer {
                     Column(modifier = Modifier.padding(top = 10.dp)) {
                         HorizontalDivider(color = TextTertiary.copy(alpha = 0.22f))
-                        session.messages.forEach { msg ->
-                            val (icon, tint, label) = when (msg.type) {
+                        typeOrder.forEach { type ->
+                            val messages = groupedMessages[type] ?: return@forEach
+                            val (icon, tint, label) = when (type) {
                                 ThinkingMessageType.THINKING -> Triple(Icons.Default.Lightbulb, ThinkingPurple, "Thinking")
-                                ThinkingMessageType.TOOL_CALL -> Triple(Icons.Default.Build, BubbleGradientStart, "Tool")
-                                ThinkingMessageType.FILE_OP -> Triple(Icons.Default.Description, WarningAmber, "File")
-                                ThinkingMessageType.ERROR -> Triple(Icons.Default.Error, RedError, "Error")
+                                ThinkingMessageType.TOOL_CALL -> Triple(Icons.Default.Build, BubbleGradientStart, "Tool Calls")
+                                ThinkingMessageType.FILE_OP -> Triple(Icons.Default.Description, WarningAmber, "File Operations")
+                                ThinkingMessageType.ERROR -> Triple(Icons.Default.Error, RedError, "Errors")
                                 ThinkingMessageType.SYSTEM -> Triple(Icons.Default.Terminal, TextSecondary, "System")
                             }
+                            val isTypeExpanded = type in expandedTypes
+
+                            // Type header (collapsible)
                             Row(
-                                verticalAlignment = Alignment.Top,
-                                modifier = Modifier.padding(top = 8.dp)
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        expandedTypes = if (isTypeExpanded) {
+                                            expandedTypes - type
+                                        } else {
+                                            expandedTypes + type
+                                        }
+                                    }
+                                    .padding(vertical = 4.dp)
                             ) {
                                 Icon(
                                     imageVector = icon,
                                     contentDescription = label,
                                     tint = tint,
-                                    modifier = Modifier.size(14.dp).padding(top = 2.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(Modifier.width(6.dp))
-                                Column {
-                                    Text(
-                                        text = label,
-                                        color = tint,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = msg.content,
-                                        color = TextSecondary,
-                                        fontSize = 12.sp,
-                                        lineHeight = 17.sp,
-                                        maxLines = 3,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                Text(
+                                    text = label,
+                                    color = tint,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "${messages.size}",
+                                    color = TextTertiary,
+                                    fontSize = 11.sp
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = if (isTypeExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    tint = TextTertiary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+
+                            // Type messages (shown when type is expanded)
+                            AnimatedVisibility(
+                                visible = isTypeExpanded,
+                                enter = expandVertically(),
+                                exit = shrinkVertically()
+                            ) {
+                                Column(modifier = Modifier.padding(start = 20.dp)) {
+                                    messages.forEach { msg ->
+                                        Text(
+                                            text = msg.content,
+                                            color = TextSecondary,
+                                            fontSize = 12.sp,
+                                            lineHeight = 17.sp,
+                                            maxLines = 3,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(top = 4.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
